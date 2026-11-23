@@ -13,7 +13,7 @@ class HamzaApp extends StatefulWidget {
 }
 
 class _HamzaAppState extends State<HamzaApp> {
-  String status = 'Ready - 2 Phone Call';
+  String status = 'Ready';
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
   final _localRenderer = RTCVideoRenderer();
@@ -37,12 +37,12 @@ class _HamzaAppState extends State<HamzaApp> {
       if (event.streams.isNotEmpty) {
         setState(() {
           _remoteRenderer.srcObject = event.streams[0];
-          status = 'CONNECTED - You can talk now!';
+          status = 'CONNECTED - Talk now';
         });
       }
     };
     pc.onConnectionState = (state) {
-      setState(() => status = 'Connection: $state');
+      setState(() => status = 'Connection $state');
     };
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': true});
     _localRenderer.srcObject = _localStream;
@@ -53,7 +53,7 @@ class _HamzaAppState extends State<HamzaApp> {
   }
 
   Future<void> createOffer() async {
-    setState(() => status = 'Asking Mic + Camera...');
+    setState(() => status = 'Asking Mic Camera');
     await Permission.microphone.request();
     await Permission.camera.request();
     _pc = await _createPC();
@@ -64,12 +64,12 @@ class _HamzaAppState extends State<HamzaApp> {
     final sdp = desc!.sdp!;
     setState(() {
       _codeController.text = sdp;
-      status = 'OFFER Created! COPY this code, send to Phone 2 via WhatsApp';
+      status = 'OFFER Created - COPY and send to Phone 2';
     });
   }
 
   Future<void> joinWithOffer() async {
-    setState(() => status = 'Asking Mic + Camera...');
+    setState(() => status = 'Asking Mic Camera');
     await Permission.microphone.request();
     await Permission.camera.request();
     _pc = await _createPC();
@@ -81,13 +81,13 @@ class _HamzaAppState extends State<HamzaApp> {
     final sdp2 = desc2!.sdp!;
     setState(() {
       _codeController.text = sdp2;
-      status = 'ANSWER Created! COPY this code, send back to Phone 1';
+      status = 'ANSWER Created - COPY and send to Phone 1';
     });
   }
 
   Future<void> setAnswer() async {
     await _pc!.setRemoteDescription(RTCSessionDescription(_codeController.text, 'answer'));
-    setState(() => status = 'ANSWER Set! Waiting to connect...');
+    setState(() => status = 'ANSWER Set - Waiting to connect');
   }
 
   @override
@@ -102,7 +102,7 @@ class _HamzaAppState extends State<HamzaApp> {
               backgroundImage: AssetImage('assets/logo.png'),
             ),
           ),
-          title: const Text('Hamza Jani - 2 Phone Call'),
+          title: const Text('Hamza Jani'),
           backgroundColor: Colors.green,
         ),
         body: SingleChildScrollView(
@@ -126,19 +126,22 @@ class _HamzaAppState extends State<HamzaApp> {
                 ],
               ),
               const SizedBox(height: 10),
-              const Text('Local (You) - Remote (Friend)', style: TextStyle(fontSize: 12)),
+              const Text('Local - Remote', style: TextStyle(fontSize: 12)),
               const SizedBox(height: 15),
               TextField(
                 controller: _codeController,
                 maxLines: 4,
-                decoration: InputDecoration(border: OutlineInputBorder(), hintText: 'Paste CODE here'),
+                decoration: const InputDecoration(
+                  border: OutlineInputBorder(),
+                  hintText: 'Paste CODE here',
+                ),
               ),
               const SizedBox(height: 15),
-              ElevatedButton(onPressed: createOffer, child: const Text('PHONE 1: CREATE OFFER')),
+              ElevatedButton(onPressed: createOffer, child: const Text('PHONE 1 CREATE OFFER')),
               const SizedBox(height: 10),
-              ElevatedButton(onPressed: joinWithOffer, child: const Text('PHONE 2: JOIN WITH OFFER')),
+              ElevatedButton(onPressed: joinWithOffer, child: const Text('PHONE 2 JOIN WITH OFFER')),
               const SizedBox(height: 10),
-              ElevatedButton(onPressed: setAnswer, child: const Text('PHONE 1: SET ANSWER')),
+              ElevatedButton(onPressed: setAnswer, child: const Text('PHONE 1 SET ANSWER')),
             ],
           ),
         ),
