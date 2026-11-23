@@ -13,42 +13,79 @@ class HamzaApp extends StatefulWidget {
 }
 
 class _HamzaAppState extends State<HamzaApp> {
-  String status = 'Ready - Room 1234';
-  MediaStream? _stream;
+  String status = 'Ready - 2 Phone Call';
+  RTCPeerConnection? _pc;
+  MediaStream? _localStream;
   final _localRenderer = RTCVideoRenderer();
+  final _remoteRenderer = RTCVideoRenderer();
+  final _codeController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
     _localRenderer.initialize();
+    _remoteRenderer.initialize();
   }
 
-  Future<void> startAudio() async {
-    setState(() => status = 'Asking for Mic...');
-    var mic = await Permission.microphone.request();
-    if (!mic.isGranted) {
-      setState(() => status = 'Mic DENIED - Allow Mic in Settings');
-      return;
-    }
-    try {
-      _stream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': false});
-      setState(() => status = 'MIC WORKING - Audio Call Started');
-    } catch (e) {
-      setState(() => status = 'Mic Error: $e');
-    }
+  Future<RTCPeerConnection> _createPC() async {
+    final pc = await createPeerConnection({
+      'iceServers': [
+        {'urls': 'stun:stun.l.google.com:19302'},
+      ]
+    });
+    pc.onTrack = (event) {
+      if (event.streams.isNotEmpty) {
+        setState(() {
+          _remoteRenderer.srcObject = event.streams[0];
+          status = 'CONNECTED - You can talk now!';
+        });
+      }
+    };
+    pc.onConnectionState = (state) {
+      setState(() => status = 'Connection: $state');
+    };
+    _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': true});
+    _localRenderer.srcObject = _localStream;
+    _localStream!.getTracks().forEach((track) {
+      pc.addTrack(track, _localStream!);
+    });
+    return pc;
   }
 
-  Future<void> startVideo() async {
-    setState(() => status = 'Asking for Mic + Camera...');
+  Future<void> createOffer() async {
+    setState(() => status = 'Asking Mic + Camera...');
     await Permission.microphone.request();
     await Permission.camera.request();
-    try {
-      _stream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': true});
-      _localRenderer.srcObject = _stream;
-      setState(() => status = 'VIDEO WORKING - Video Call Started');
-    } catch (e) {
-      setState(() => status = 'Video Error: $e');
-    }
+    _pc = await _createPC();
+    final offer = await _pc!.createOffer();
+    await _pc!.setLocalDescription(offer);
+    await Future.delayed(const Duration(seconds: 2));
+    final sdp = _pc!.getLocalDescription()!.sdp!;
+    setState(() {
+      _codeController.text = sdp;
+      status = 'OFFER Created! COPY this code, send to Phone 2 via WhatsApp';
+    });
+  }
+
+  Future<void> joinWithOffer() async {
+    setState(() => status = 'Asking Mic + Camera...');
+    await Permission.microphone.request();
+    await Permission.camera.request();
+    _pc = await _createPC();
+    await _pc!.setRemoteDescription(RTCSessionDescription(_codeController.text, 'offer'));
+    final answer = await _pc!.createAnswer();
+    await _pc!.setLocalDescription(answer);
+    await Future.delayed(const Duration(seconds: 2));
+    final sdp = _pc!.getLocalDescription()!.sdp!;
+    setState(() {
+      _codeController.text = sdp;
+      status = 'ANSWER Created! COPY this code, send back to Phone 1';
+    });
+  }
+
+  Future<void> setAnswer() async {
+    await _pc!.setRemoteDescription(RTCSessionDescription(_codeController.text, 'answer'));
+    setState(() => status = 'ANSWER Set! Waiting to connect...');
   }
 
   @override
@@ -56,20 +93,34 @@ class _HamzaAppState extends State<HamzaApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
-        appBar: AppBar(title: const Text('Hamza Jani'), backgroundColor: Colors.green),
-        body: Center(
+        appBar: AppBar(title: const Text('Hamza Jani - 2 Phone Call'), backgroundColor: Colors.green),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
           child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              const Text('Hamza Jani', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+              Text(status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
-              Text(status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 18)),
-              const SizedBox(height: 20),
-              SizedBox(width: 250, height: 180, child: RTCVideoView(_localRenderer)),
-              const SizedBox(height: 20),
-              ElevatedButton(onPressed: startAudio, child: const Text('AUDIO CALL')),
+              Row(
+                children: [
+                  Expanded(child: SizedBox(height: 140, child: RTCVideoView(_localRenderer, mirror: true))),
+                  const SizedBox(width: 10),
+                  Expanded(child: SizedBox(height: 140, child: RTCVideoView(_remoteRenderer))),
+                ],
+              ),
+              const SizedBox(height: 10),
+              const Text('Local (You) - Remote (Friend)', style: TextStyle(fontSize: 12)),
               const SizedBox(height: 15),
-              ElevatedButton(onPressed: startVideo, child: const Text('VIDEO CALL')),
+              TextField(
+                controller: _codeController,
+                maxLines: 4,
+                decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Paste CODE here...'),
+              ),
+              const SizedBox(height: 15),
+              ElevatedButton(onPressed: createOffer, child: const Text('PHONE 1: CREATE OFFER')),
+              const SizedBox(height: 10),
+              ElevatedButton(onPressed: joinWithOffer, child: const Text('PHONE 2: JOIN WITH OFFER')),
+              const SizedBox(height: 10),
+              ElevatedButton(onPressed: setAnswer, child: const Text('PHONE 1: SET ANSWER')),
             ],
           ),
         ),
