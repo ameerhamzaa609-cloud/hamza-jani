@@ -11,4 +11,4 @@ dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/logo.png
+    - hamza_logo.png
