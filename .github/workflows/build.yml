@@ -15,6 +15,18 @@ jobs:
           channel: 'stable'
       - run: flutter pub get
       - run: flutter create --project-name hamza_jani .
+      - name: Set App Icon to My Photo
+        run: |
+          python3 << 'PY'
+          import shutil, pathlib
+          src = pathlib.Path('hamza_logo.png')
+          for folder in pathlib.Path('android/app/src/main/res').glob('mipmap-*'):
+              for name in ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']:
+                  dst = folder / name
+                  if src.exists():
+                      shutil.copy(src, dst)
+                      print(f'copied to {dst}')
+          PY
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
