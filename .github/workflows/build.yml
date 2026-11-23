@@ -15,20 +15,9 @@ jobs:
           channel: 'stable'
       - run: flutter pub get
       - run: flutter create --project-name hamza_jani .
-      - name: Add Mic Camera Permissions
-        run: |
-          python3 << 'PY'
-          import pathlib
-          p = pathlib.Path('android/app/src/main/AndroidManifest.xml')
-          t = p.read_text()
-          if 'RECORD_AUDIO' not in t:
-              perms = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n'
-              t = t.replace('<application', perms + '    <application')
-              p.write_text(t)
-          print('permissions added')
-          PY
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
           name: hamza-jani-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          
