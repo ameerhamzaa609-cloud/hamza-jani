@@ -15,17 +15,34 @@ jobs:
           channel: 'stable'
       - run: flutter pub get
       - run: flutter create --project-name hamza_jani .
+      - name: Setup Firebase
+        run: |
+          cp google-services.json android/app/google-services.json
+          python3 << 'PY'
+          import pathlib
+          s = pathlib.Path('android/settings.gradle')
+          t = s.read_text()
+          if 'google-services' not in t:
+              t = t.replace('id "dev.flutter.flutter-gradle-plugin"', 'id "dev.flutter.flutter-gradle-plugin"\n        id "com.google.gms.google-services" version "4.4.2" apply false')
+              s.write_text(t)
+          a = pathlib.Path('android/app/build.gradle')
+          if a.exists():
+              at = a.read_text()
+              if 'google-services' not in at:
+                  at = at.replace('id "dev.flutter.flutter-gradle-plugin"', 'id "dev.flutter.flutter-gradle-plugin"\n    id "com.google.gms.google-services"')
+                  a.write_text(at)
+          print('firebase setup done')
+          PY
       - name: Set App Icon to My Photo
         run: |
           python3 << 'PY'
           import shutil, pathlib
           src = pathlib.Path('hamza_logo.png')
           for folder in pathlib.Path('android/app/src/main/res').glob('mipmap-*'):
-              for name in ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']:
+              for name in ['ic_launcher.png', 'ic_launcher_round.png']:
                   dst = folder / name
                   if src.exists():
                       shutil.copy(src, dst)
-                      print(f'copied to {dst}')
           PY
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
