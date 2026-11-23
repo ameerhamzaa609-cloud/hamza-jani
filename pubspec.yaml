@@ -8,6 +8,9 @@ dependencies:
     sdk: flutter
   flutter_webrtc: ^0.9.48
   permission_handler: ^11.3.1
+  firebase_core: ^2.32.0
+  firebase_auth: ^4.19.0
+  cloud_firestore: ^4.17.0
 flutter:
   uses-material-design: true
   assets:
