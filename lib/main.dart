@@ -1,18 +1,210 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   runApp(const HamzaApp());
 }
 
-class HamzaApp extends StatefulWidget {
+class HamzaApp extends StatelessWidget {
   const HamzaApp({super.key});
   @override
-  State<HamzaApp> createState() => _HamzaAppState();
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snap) {
+          if (snap.connectionState == ConnectionState.waiting) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          if (snap.hasData) return const HomeScreen();
+          return const AuthScreen();
+        },
+      ),
+    );
+  }
 }
 
-class _HamzaAppState extends State<HamzaApp> {
+class AuthScreen extends StatefulWidget {
+  const AuthScreen({super.key});
+  @override
+  State<AuthScreen> createState() => _AuthScreenState();
+}
+
+class _AuthScreenState extends State<AuthScreen> {
+  final _nameCtrl = TextEditingController();
+  final _idCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  String msg = 'Create your User ID';
+  bool isLogin = false;
+
+  String emailFromId(String id) {
+    return '${id.trim().toLowerCase()}@hamzajani.app';
+  }
+
+  Future<void> submit() async {
+    final id = _idCtrl.text.trim().toLowerCase();
+    final pass = _passCtrl.text.trim();
+    final name = _nameCtrl.text.trim();
+    if (id.isEmpty || pass.length < 6) {
+      setState(() => msg = 'User ID needed and Password must be 6+');
+      return;
+    }
+    try {
+      if (isLogin) {
+        await FirebaseAuth.instance.signInWithEmailAndPassword(email: emailFromId(id), password: pass);
+      } else {
+        if (name.isEmpty) {
+          setState(() => msg = 'Type your Name for Create');
+          return;
+        }
+        final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(email: emailFromId(id), password: pass);
+        await FirebaseFirestore.instance.collection('users').doc(cred.user!.uid).set({
+          'username': name,
+          'userId': id,
+          'searchName': name.toLowerCase(),
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (e) {
+      setState(() => msg = 'Error $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Hamza Jani'), backgroundColor: Colors.green),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          children: [
+            const CircleAvatar(radius: 55, backgroundImage: AssetImage('hamza_logo.png')),
+            const SizedBox(height: 10),
+            const Text('Hamza Jani', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Text(msg, textAlign: TextAlign.center),
+            const SizedBox(height: 20),
+            if (!isLogin)
+              TextField(controller: _nameCtrl, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Your Name')),
+            if (!isLogin) const SizedBox(height: 12),
+            TextField(controller: _idCtrl, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Create User ID')),
+            const SizedBox(height: 12),
+            TextField(controller: _passCtrl, obscureText: true, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Password')),
+            const SizedBox(height: 20),
+            ElevatedButton(onPressed: submit, child: Text(isLogin ? 'LOGIN' : 'CREATE ACCOUNT')),
+            TextButton(
+              onPressed: () => setState(() => isLogin = !isLogin),
+              child: Text(isLogin ? 'No account - Create one' : 'Have account - Login'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  final _searchCtrl = TextEditingController();
+  List<Map<String, dynamic>> results = [];
+  String myName = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMe();
+  }
+
+  Future<void> _loadMe() async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final doc = await FirebaseFirestore.instance.collection('users').doc(uid).get();
+    if (doc.exists) setState(() => myName = doc.data()!['username'] ?? '');
+  }
+
+  Future<void> searchUsers() async {
+    final q = _searchCtrl.text.trim().toLowerCase();
+    if (q.isEmpty) return;
+    final snap = await FirebaseFirestore.instance
+        .collection('users')
+        .where('searchName', isGreaterThanOrEqualTo: q)
+        .where('searchName', isLessThanOrEqualTo: q + '\uf8ff')
+        .get();
+    setState(() => results = snap.docs.map((d) => d.data()).toList());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: const Padding(padding: EdgeInsets.all(6), child: CircleAvatar(backgroundImage: AssetImage('hamza_logo.png'))),
+        title: Text('Hi $myName'),
+        backgroundColor: Colors.green,
+        actions: [
+          IconButton(onPressed: () => FirebaseAuth.instance.signOut(), icon: const Icon(Icons.logout)),
+        ],
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Text('Search People by Name', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: TextField(controller: _searchCtrl, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Type Name to Search'))),
+                const SizedBox(width: 10),
+                ElevatedButton(onPressed: searchUsers, child: const Text('SEARCH')),
+              ],
+            ),
+            const SizedBox(height: 16),
+            Expanded(
+              child: ListView.builder(
+                itemCount: results.length,
+                itemBuilder: (context, i) {
+                  final u = results[i];
+                  return Card(
+                    child: ListTile(
+                      leading: const CircleAvatar(backgroundImage: AssetImage('hamza_logo.png')),
+                      title: Text(u['username'] ?? ''),
+                      subtitle: Text('@${u['userId'] ?? ''}'),
+                      trailing: ElevatedButton(
+                        onPressed: () {
+                          Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(otherName: u['username'] ?? '')));
+                        },
+                        child: const Text('CALL'),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class CallScreen extends StatefulWidget {
+  final String otherName;
+  const CallScreen({super.key, required this.otherName});
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
   String status = 'Ready';
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
@@ -61,10 +253,9 @@ class _HamzaAppState extends State<HamzaApp> {
     await _pc!.setLocalDescription(offer);
     await Future.delayed(const Duration(seconds: 2));
     final desc = await _pc!.getLocalDescription();
-    final sdp = desc!.sdp!;
     setState(() {
-      _codeController.text = sdp;
-      status = 'OFFER Created - COPY and send to Phone 2';
+      _codeController.text = desc!.sdp!;
+      status = 'OFFER Created - COPY and send to Friend';
     });
   }
 
@@ -78,10 +269,9 @@ class _HamzaAppState extends State<HamzaApp> {
     await _pc!.setLocalDescription(answer);
     await Future.delayed(const Duration(seconds: 2));
     final desc2 = await _pc!.getLocalDescription();
-    final sdp2 = desc2!.sdp!;
     setState(() {
-      _codeController.text = sdp2;
-      status = 'ANSWER Created - COPY and send to Phone 1';
+      _codeController.text = desc2!.sdp!;
+      status = 'ANSWER Created - COPY and send to Friend';
     });
   }
 
@@ -92,58 +282,30 @@ class _HamzaAppState extends State<HamzaApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      home: Scaffold(
-        appBar: AppBar(
-          leading: const Padding(
-            padding: EdgeInsets.all(6),
-            child: CircleAvatar(
-              backgroundImage: AssetImage('hamza_logo.png'),
+    return Scaffold(
+      appBar: AppBar(title: Text('Call ${widget.otherName}'), backgroundColor: Colors.green),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            Text(status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(child: SizedBox(height: 140, child: RTCVideoView(_localRenderer, mirror: true))),
+                const SizedBox(width: 10),
+                Expanded(child: SizedBox(height: 140, child: RTCVideoView(_remoteRenderer))),
+              ],
             ),
-          ),
-          title: const Text('Hamza Jani'),
-          backgroundColor: Colors.green,
-        ),
-        body: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            children: [
-              const CircleAvatar(
-                radius: 55,
-                backgroundImage: AssetImage('hamza_logo.png'),
-              ),
-              const SizedBox(height: 10),
-              const Text('Hamza Jani', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text(status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Expanded(child: SizedBox(height: 140, child: RTCVideoView(_localRenderer, mirror: true))),
-                  const SizedBox(width: 10),
-                  Expanded(child: SizedBox(height: 140, child: RTCVideoView(_remoteRenderer))),
-                ],
-              ),
-              const SizedBox(height: 10),
-              const Text('Local - Remote', style: TextStyle(fontSize: 12)),
-              const SizedBox(height: 15),
-              TextField(
-                controller: _codeController,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'Paste CODE here',
-                ),
-              ),
-              const SizedBox(height: 15),
-              ElevatedButton(onPressed: createOffer, child: const Text('PHONE 1 CREATE OFFER')),
-              const SizedBox(height: 10),
-              ElevatedButton(onPressed: joinWithOffer, child: const Text('PHONE 2 JOIN WITH OFFER')),
-              const SizedBox(height: 10),
-              ElevatedButton(onPressed: setAnswer, child: const Text('PHONE 1 SET ANSWER')),
-            ],
-          ),
+            const SizedBox(height: 15),
+            TextField(controller: _codeController, maxLines: 4, decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Paste CODE here')),
+            const SizedBox(height: 15),
+            ElevatedButton(onPressed: createOffer, child: const Text('PHONE 1 CREATE OFFER')),
+            const SizedBox(height: 10),
+            ElevatedButton(onPressed: joinWithOffer, child: const Text('PHONE 2 JOIN WITH OFFER')),
+            const SizedBox(height: 10),
+            ElevatedButton(onPressed: setAnswer, child: const Text('PHONE 1 SET ANSWER')),
+          ],
         ),
       ),
     );
