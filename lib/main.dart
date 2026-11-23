@@ -131,4 +131,18 @@ class _HamzaAppState extends State<HamzaApp> {
               TextField(
                 controller: _codeController,
                 maxLines: 4,
-                decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Paste CODE here...'),
+                decoration: InputDecoration(border: OutlineInputBorder(), hintText: 'Paste CODE here'),
+              ),
+              const SizedBox(height: 15),
+              ElevatedButton(onPressed: createOffer, child: const Text('PHONE 1: CREATE OFFER')),
+              const SizedBox(height: 10),
+              ElevatedButton(onPressed: joinWithOffer, child: const Text('PHONE 2: JOIN WITH OFFER')),
+              const SizedBox(height: 10),
+              ElevatedButton(onPressed: setAnswer, child: const Text('PHONE 1: SET ANSWER')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
