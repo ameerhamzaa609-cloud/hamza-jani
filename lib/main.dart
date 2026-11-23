@@ -95,11 +95,27 @@ class _HamzaAppState extends State<HamzaApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       home: Scaffold(
-        appBar: AppBar(title: const Text('Hamza Jani - 2 Phone Call'), backgroundColor: Colors.green),
+        appBar: AppBar(
+          leading: const Padding(
+            padding: EdgeInsets.all(6),
+            child: CircleAvatar(
+              backgroundImage: AssetImage('assets/logo.png'),
+            ),
+          ),
+          title: const Text('Hamza Jani - 2 Phone Call'),
+          backgroundColor: Colors.green,
+        ),
         body: SingleChildScrollView(
           padding: const EdgeInsets.all(16),
           child: Column(
             children: [
+              const CircleAvatar(
+                radius: 55,
+                backgroundImage: AssetImage('assets/logo.png'),
+              ),
+              const SizedBox(height: 10),
+              const Text('Hamza Jani', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
               Text(status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 10),
               Row(
@@ -116,17 +132,3 @@ class _HamzaAppState extends State<HamzaApp> {
                 controller: _codeController,
                 maxLines: 4,
                 decoration: const InputDecoration(border: OutlineInputBorder(), hintText: 'Paste CODE here...'),
-              ),
-              const SizedBox(height: 15),
-              ElevatedButton(onPressed: createOffer, child: const Text('PHONE 1: CREATE OFFER')),
-              const SizedBox(height: 10),
-              ElevatedButton(onPressed: joinWithOffer, child: const Text('PHONE 2: JOIN WITH OFFER')),
-              const SizedBox(height: 10),
-              ElevatedButton(onPressed: setAnswer, child: const Text('PHONE 1: SET ANSWER')),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
