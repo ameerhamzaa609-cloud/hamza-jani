@@ -99,7 +99,7 @@ class _HamzaAppState extends State<HamzaApp> {
           leading: const Padding(
             padding: EdgeInsets.all(6),
             child: CircleAvatar(
-              backgroundImage: AssetImage('assets/logo.png'),
+              backgroundImage: AssetImage('hamza_logo.png'),
             ),
           ),
           title: const Text('Hamza Jani'),
@@ -111,7 +111,7 @@ class _HamzaAppState extends State<HamzaApp> {
             children: [
               const CircleAvatar(
                 radius: 55,
-                backgroundImage: AssetImage('assets/logo.png'),
+                backgroundImage: AssetImage('hamza_logo.png'),
               ),
               const SizedBox(height: 10),
               const Text('Hamza Jani', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
