@@ -17,21 +17,16 @@ jobs:
       - run: flutter create --project-name hamza_jani .
       - name: Add Mic Camera Permissions
         run: |
-          python3 -c "
+          python3 << 'PY'
           import pathlib
-          p = pathlib.Path('【entity-android¦canonical_name=Android】/app/src/main/AndroidManifest.xml')
+          p = pathlib.Path('android/app/src/main/AndroidManifest.xml')
           t = p.read_text()
-          perms = '''    <uses-permission android:name=\"【entity-android¦canonical_name=Android】.permission.RECORD_AUDIO\" />
-              <uses-permission 【entity-android¦canonical_name=Android】:name=\"【entity-android¦canonical_name=Android】.permission.CAMERA\" />
-              <uses-permission 【entity-android¦canonical_name=Android】:name=\"【entity-android¦canonical_name=Android】.permission.INTERNET\" />
-              <uses-permission android:name=\"android.permission.MODIFY_AUDIO_SETTINGS\" />
-              <uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\" />
-          '''
           if 'RECORD_AUDIO' not in t:
+              perms = '    <uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />\n    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />\n'
               t = t.replace('<application', perms + '    <application')
               p.write_text(t)
           print('permissions added')
-          "
+          PY
       - run: flutter build apk --release
       - uses: actions/upload-artifact@v4
         with:
