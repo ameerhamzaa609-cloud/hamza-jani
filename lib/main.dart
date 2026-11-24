@@ -69,7 +69,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ================= HOME WITH 2 TABS =================
 class HomeScreen extends StatefulWidget { @override _HomeScreenState createState() => _HomeScreenState(); }
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
@@ -115,7 +114,6 @@ class _HomeScreenState extends State<HomeScreen> {
               }),
               SizedBox(width: 8),
               ElevatedButton(child: Text("Reject"), style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: () async {
-                // Mark as MISSED
                 await callDoc.reference.update({"status":"missed", "endTime": FieldValue.serverTimestamp()});
               }),
             ]),
@@ -126,7 +124,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ================= CALL HISTORY =================
 class CallHistoryScreen extends StatefulWidget {
   final String myUid; CallHistoryScreen({required this.myUid});
   @override _CallHistoryScreenState createState() => _CallHistoryScreenState();
@@ -173,7 +170,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with SingleTicker
           return ListTile(
             leading: CircleAvatar(backgroundColor: color.withOpacity(0.15), child: Icon(icon, color: color)),
             title: Text(otherName, style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text("$label • $timeStr${status=="ended" ? " • Ended" : ""}"),
+            subtitle: Text("$label • $timeStr"),
             trailing: IconButton(icon: Icon(Icons.call, color: Colors.green), onPressed: (){
               String otherUid = isOutgoing ? data["to"] : data["from"];
               String callId = "${widget.myUid}_${otherUid}_${DateTime.now().millisecondsSinceEpoch}";
@@ -186,7 +183,6 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with SingleTicker
   }
 }
 
-// ================= CALL SCREEN =================
 class CallScreen extends StatefulWidget {
   final String callId; final bool isCaller; final String otherUid; final String otherName;
   CallScreen({required this.callId, required this.isCaller, required this.otherUid, required this.otherName});
@@ -199,21 +195,48 @@ class _CallScreenState extends State<CallScreen> {
   final _remoteRenderer = RTCVideoRenderer();
   String status = "Connecting...";
   bool micOn = true; bool camOn = true;
-  DateTime? startTime;
 
   @override void initState() { super.initState(); _init(); }
+
   Future<void> _init() async {
-    await _localRenderer.initialize(); await _remoteRenderer.initialize();
+    await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
     await [Permission.microphone, Permission.camera].request();
-    _localStream = await navigator.mediaDevices.getUserMedia({"audio": true, "video": true});
+    _localStream = await navigator.mediaDevices.getUserMedia({"audio": true, "video": {"facingMode": "user"}});
     _localRenderer.srcObject = _localStream;
-    Map<String,dynamic> config = {"iceServers": [{"urls": "stun:stun.l.google.com:19302"}]};
+    setState((){});
+
+    Map<String,dynamic> config = {"iceServers": [
+      {"urls": "stun:stun.l.google.com:19302"},
+      {"urls": "turn:openrelay.metered.ca:80", "username": "openrelayproject", "credential": "openrelayproject"},
+      {"urls": "turn:openrelay.metered.ca:443", "username": "openrelayproject", "credential": "openrelayproject"},
+      {"urls": "turn:openrelay.metered.ca:443?transport=tcp", "username": "openrelayproject", "credential": "openrelayproject"},
+    ]};
+
     _pc = await createPeerConnection(config);
+
     _localStream!.getTracks().forEach((t){ _pc!.addTrack(t, _localStream!); });
-    _pc!.onTrack = (e){ if(e.streams.isNotEmpty) setState(()=> _remoteRenderer.srcObject = e.streams[0]); };
-    _pc!.onIceCandidate = (c){
-      if(c.candidate != null) FirebaseFirestore.instance.collection("calls").doc(widget.callId).collection(widget.isCaller ? "callerCandidates" : "calleeCandidates").add(c.toMap());
+
+    // FIXED: Remote video handling - both callbacks
+    _pc!.onTrack = (RTCTrackEvent e){
+      print("ON TRACK RECEIVED: ${e.track.kind}");
+      if(e.streams.isNotEmpty){
+        _remoteRenderer.srcObject = e.streams[0];
+        setState(()=> status="Connected - ${widget.otherName}");
+      }
     };
+    _pc!.onAddStream = (MediaStream stream){
+      print("ON ADD STREAM");
+      _remoteRenderer.srcObject = stream;
+      setState(()=> status="Connected - ${widget.otherName}");
+    };
+
+    _pc!.onIceCandidate = (c){
+      if(c.candidate != null){
+        FirebaseFirestore.instance.collection("calls").doc(widget.callId).collection(widget.isCaller ? "callerCandidates" : "calleeCandidates").add(c.toMap());
+      }
+    };
+
     var callRef = FirebaseFirestore.instance.collection("calls").doc(widget.callId);
     String myUid = FirebaseAuth.instance.currentUser!.uid;
     String myName = "";
@@ -221,15 +244,15 @@ class _CallScreenState extends State<CallScreen> {
     if(myDoc.exists) myName = (myDoc.data() as Map<String,dynamic>)["username"] ?? "";
 
     if(widget.isCaller){
-      await callRef.set({"from": myUid, "fromName": myName, "to": widget.otherUid, "toName": widget.otherName, "status": "calling", "time": FieldValue.serverTimestamp(), "startTime": FieldValue.serverTimestamp()});
-      RTCSessionDescription offer = await _pc!.createOffer(); await _pc!.setLocalDescription(offer);
+      await callRef.set({"from": myUid, "fromName": myName, "to": widget.otherUid, "toName": widget.otherName, "status": "calling", "time": FieldValue.serverTimestamp()});
+      RTCSessionDescription offer = await _pc!.createOffer();
+      await _pc!.setLocalDescription(offer);
       await callRef.update({"offer": offer.toMap()});
       setState(()=> status="Calling ${widget.otherName}...");
       callRef.snapshots().listen((snap){
         var d = snap.data(); if(d==null) return;
         if(d["answer"] != null && _pc!.getRemoteDescription() == null){
           _pc!.setRemoteDescription(RTCSessionDescription(d["answer"]["sdp"], d["answer"]["type"]));
-          startTime = DateTime.now(); setState(()=> status="Connected - ${widget.otherName}");
         }
         if(d["status"]=="rejected") setState(()=> status="Rejected");
         if(d["status"]=="missed") setState(()=> status="Missed");
@@ -239,31 +262,47 @@ class _CallScreenState extends State<CallScreen> {
         for(var doc in snap.docChanges){ if(doc.type==DocumentChangeType.added){ var d=doc.doc.data(); _pc!.addCandidate(RTCIceCandidate(d!["candidate"], d["sdpMid"], d["sdpMLineIndex"])); } }
       });
     } else {
-      var snap = await callRef.get(); var data = snap.data() as Map<String,dynamic>;
+      var snap = await callRef.get();
+      var data = snap.data() as Map<String,dynamic>;
       await _pc!.setRemoteDescription(RTCSessionDescription(data["offer"]["sdp"], data["offer"]["type"]));
-      RTCSessionDescription answer = await _pc!.createAnswer(); await _pc!.setLocalDescription(answer);
+      RTCSessionDescription answer = await _pc!.createAnswer();
+      await _pc!.setLocalDescription(answer);
       await callRef.update({"answer": answer.toMap(), "status": "accepted"});
-      startTime = DateTime.now(); setState(()=> status="Connected - ${widget.otherName}");
+      setState(()=> status="Connected - ${widget.otherName}");
       callRef.collection("callerCandidates").snapshots().listen((snap){
         for(var doc in snap.docChanges){ if(doc.type==DocumentChangeType.added){ var d=doc.doc.data(); _pc!.addCandidate(RTCIceCandidate(d!["candidate"], d["sdpMid"], d["sdpMLineIndex"])); } }
       });
       callRef.snapshots().listen((s){ var d=s.data(); if(d!=null && d["status"]=="ended") Navigator.pop(context); });
     }
   }
+
   Future<void> _hangUp() async {
-    // If caller hangs up before answer -> mark as MISSED for receiver
     var doc = await FirebaseFirestore.instance.collection("calls").doc(widget.callId).get();
     var data = doc.data();
     String newStatus = "ended";
     if(data!=null && data["status"]=="calling" && widget.isCaller){ newStatus="missed"; }
     await FirebaseFirestore.instance.collection("calls").doc(widget.callId).update({"status": newStatus, "endTime": FieldValue.serverTimestamp()});
-    await _pc?.close(); await _localStream?.dispose(); Navigator.pop(context);
+    await _pc?.close(); await _localStream?.dispose();
+    if(mounted) Navigator.pop(context);
   }
+
   @override void dispose(){ _localRenderer.dispose(); _remoteRenderer.dispose(); _pc?.close(); _localStream?.dispose(); super.dispose(); }
+
   @override Widget build(BuildContext context) {
-    return Scaffold(backgroundColor: Colors.black, appBar: AppBar(title: Text(status), backgroundColor: Colors.black),
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(title: Text(status), backgroundColor: Colors.black),
       body: Stack(children: [
-        RTCVideoView(_remoteRenderer, mirror: true),
+        // Remote video - FULL SCREEN
+        Container(color: Colors.black, child: RTCVideoView(_remoteRenderer, mirror: false, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)),
+        // If remote not yet connected, show message
+        if(_remoteRenderer.srcObject == null)
+          Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text("Waiting for ${widget.otherName} video...", style: TextStyle(color: Colors.white, fontSize: 16)),
+          ])),
+        // Local small video
         Positioned(top: 10, right: 10, width: 120, height: 160, child: Container(decoration: BoxDecoration(border: Border.all(color: Colors.white)), child: RTCVideoView(_localRenderer, mirror: true))),
         Positioned(bottom: 20, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           FloatingActionButton(backgroundColor: micOn?Colors.white:Colors.red, onPressed: (){ setState(()=> micOn=!micOn); _localStream?.getAudioTracks().forEach((t)=> t.enabled=micOn); }, child: Icon(micOn?Icons.mic:Icons.mic_off)),
