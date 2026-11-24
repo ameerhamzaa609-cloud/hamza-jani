@@ -4,12 +4,13 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
 import 'firebase_options.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   try { await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform); } catch (e) { print("Firebase: $e"); }
-  await [Permission.microphone, Permission.camera].request();
+  await [Permission.microphone, Permission.camera, Permission.contacts].request();
   runApp(HamzaApp());
 }
 
@@ -137,28 +138,91 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-class PhonebookScreen extends StatelessWidget {
+// ===== PHONEBOOK - Shows ALL Phone Contacts + Saved Hamza Users =====
+class PhonebookScreen extends StatefulWidget {
   final String myUid; PhonebookScreen({required this.myUid});
+  @override _PhonebookScreenState createState() => _PhonebookScreenState();
+}
+class _PhonebookScreenState extends State<PhonebookScreen> with SingleTickerProviderStateMixin {
+  late TabController _tabCtrl;
+  List<Contact> phoneContacts = [];
+  bool loadingContacts = true;
+  String contactError = "";
+  @override void initState(){ super.initState(); _tabCtrl = TabController(length: 2, vsync: this); _loadPhoneContacts(); }
+  Future<void> _loadPhoneContacts() async {
+    try {
+      bool perm = await FlutterContacts.requestPermission(readonly: true);
+      if(!perm){ setState(()=> {loadingContacts=false, contactError="Contacts permission denied. Allow Contacts in Settings."}); return; }
+      List<Contact> all = await FlutterContacts.getContacts(withProperties: true, withPhoto: false);
+      all.sort((a,b)=> a.displayName.toLowerCase().compareTo(b.displayName.toLowerCase()));
+      setState(()=> {phoneContacts=all, loadingContacts=false});
+    } catch(e){ setState(()=> {loadingContacts=false, contactError=e.toString()}); }
+  }
   @override Widget build(BuildContext context){
+    return Column(children: [
+      TabBar(controller: _tabCtrl, labelColor: Colors.blue, tabs: [Tab(text: "Phone Contacts"), Tab(text: "Hamza Saved")]),
+      Expanded(child: TabBarView(controller: _tabCtrl, children: [_phoneContactsList(), _hamzaSavedList()])),
+    ]);
+  }
+  Widget _phoneContactsList(){
+    if(loadingContacts) return Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(), SizedBox(height: 10), Text("Loading all contacts from phone...")]));
+    if(contactError.isNotEmpty) return Center(child: Padding(padding: EdgeInsets.all(20), child: Text(contactError, textAlign: TextAlign.center)));
+    if(phoneContacts.isEmpty) return Center(child: Text("No contacts in phone"));
+    return Column(children: [
+      Container(padding: EdgeInsets.all(10), color: Colors.green[50], child: Row(children: [Icon(Icons.contacts, color: Colors.green), SizedBox(width: 8), Expanded(child: Text("${phoneContacts.length} contacts from your phone"))])),
+      Expanded(child: ListView.builder(itemCount: phoneContacts.length, itemBuilder: (c,i){
+        Contact contact = phoneContacts[i];
+        String phone = contact.phones.isNotEmpty ? contact.phones.first.number : "";
+        String name = contact.displayName.isNotEmpty ? contact.displayName : "Unknown";
+        return Card(child: ListTile(
+          leading: CircleAvatar(backgroundColor: Colors.green[100], child: Text(name.isNotEmpty ? name.substring(0,1).toUpperCase() : "?")),
+          title: Text(name, style: TextStyle(fontWeight: FontWeight.bold)),
+          subtitle: Text(phone.isNotEmpty ? phone : "No number"),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(icon: Icon(Icons.search, color: Colors.blue), tooltip: "Find in Hamza", onPressed: () async {
+              // Try to find this contact in Hamza users by name
+              var q = await FirebaseFirestore.instance.collection("users").where("username", isEqualTo: name.trim().toLowerCase()).get();
+              if(q.docs.isEmpty){
+                // Try original name
+                q = await FirebaseFirestore.instance.collection("users").where("username", isEqualTo: name.trim()).get();
+              }
+              if(q.docs.isEmpty){
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$name is not on Hamza yet. Ask them to create account with User ID: $name")));
+              } else {
+                var data = q.docs.first.data() as Map<String,dynamic>;
+                String otherUid = data["uid"]; String otherName = data["username"] ?? name;
+                String callId = "${widget.myUid}_${otherUid}_${DateTime.now().millisecondsSinceEpoch}";
+                Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, isCaller: true, otherUid: otherUid, otherName: otherName)));
+              }
+            }),
+            IconButton(icon: Icon(Icons.call, color: Colors.green, size: 28), onPressed: (){
+              ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("To call $name in Hamza, they need a Hamza User ID. Tap 🔍 icon to check.")));
+            }),
+          ]),
+        ));
+      })),
+    ]);
+  }
+  Widget _hamzaSavedList(){
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection("users").doc(myUid).collection("phonebook").orderBy("username").snapshots(),
+      stream: FirebaseFirestore.instance.collection("users").doc(widget.myUid).collection("phonebook").orderBy("username").snapshots(),
       builder: (c, snap){
         if(!snap.hasData) return Center(child: CircularProgressIndicator());
-        if(snap.data!.docs.isEmpty) return Center(child: Padding(padding: EdgeInsets.all(20), child: Text("Phonebook is empty.\n\nGo to Online tab > Search a user > Tap Bookmark icon to save here.\n\nThen you can call anytime in 1 tap.", textAlign: TextAlign.center)));
+        if(snap.data!.docs.isEmpty) return Center(child: Padding(padding: EdgeInsets.all(20), child: Text("No saved Hamza users yet.\n\nGo to Online tab > Search a user > Tap Bookmark icon to save here.", textAlign: TextAlign.center)));
         return ListView.builder(itemCount: snap.data!.docs.length, itemBuilder: (c,i){
           var data = snap.data!.docs[i].data() as Map<String,dynamic>;
           String otherName = data["username"] ?? ""; String otherUid = data["uid"] ?? "";
           return Card(child: ListTile(
             leading: CircleAvatar(backgroundColor: Colors.blue[100], child: Text(otherName.isNotEmpty ? otherName.substring(0,1).toUpperCase() : "?")),
             title: Text(otherName, style: TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text("Saved contact - Tap CALL anytime"),
+            subtitle: Text("Saved Hamza user - Tap CALL anytime"),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               IconButton(icon: Icon(Icons.call, color: Colors.green, size: 28), onPressed: (){
-                String callId = "${myUid}_${otherUid}_${DateTime.now().millisecondsSinceEpoch}";
+                String callId = "${widget.myUid}_${otherUid}_${DateTime.now().millisecondsSinceEpoch}";
                 Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, isCaller: true, otherUid: otherUid, otherName: otherName)));
               }),
               IconButton(icon: Icon(Icons.delete, color: Colors.red), onPressed: () async {
-                await FirebaseFirestore.instance.collection("users").doc(myUid).collection("phonebook").doc(otherUid).delete();
+                await FirebaseFirestore.instance.collection("users").doc(widget.myUid).collection("phonebook").doc(otherUid).delete();
               }),
             ]),
           ));
