@@ -4,7 +4,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:nearby_connections/nearby_connections.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -69,7 +68,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ================= HOME - 4 TABS =================
 class HomeScreen extends StatefulWidget { @override _HomeScreenState createState() => _HomeScreenState(); }
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
@@ -140,7 +138,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ================= PHONEBOOK =================
 class PhonebookScreen extends StatelessWidget {
   final String myUid; PhonebookScreen({required this.myUid});
   @override Widget build(BuildContext context){
@@ -184,7 +181,6 @@ class _NearbyScreenState extends State<NearbyScreen> {
   }
   Future<void> _startScan() async {
     setState(()=> isScanning=true);
-    try { await Nearby().stopDiscovery(); await Nearby().stopAdvertising(); } catch(_){}
     await Future.delayed(Duration(seconds: 2));
     setState(()=> isScanning=false);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Scanning... Make sure other phone is also on Nearby tab with Bluetooth ON")));
