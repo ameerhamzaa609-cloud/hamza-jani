@@ -12,9 +12,12 @@ dependencies:
   firebase_core: ^2.32.0
   firebase_auth: ^4.19.0
   cloud_firestore: ^4.17.0
+  firebase_storage: ^11.7.0
   flutter_webrtc: ^0.9.48
   permission_handler: ^11.3.0
   flutter_contacts: ^1.1.9+1
+  image_picker: ^1.1.2
+  share_plus: ^8.0.2
 
 dev_dependencies:
   flutter_test:
