@@ -1,17 +1,28 @@
 name: hamza_jani
-description: Hamza Jani - Offline Bluetooth Mesh Calls
+description: "Hamza Jani - Online + Offline Calls"
+publish_to: 'none'
 version: 1.0.0+1
+
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+  sdk: '>=3.0.0 <4.0.0'
+
 dependencies:
   flutter:
     sdk: flutter
-  flutter_webrtc: ^0.9.48
-  permission_handler: ^11.3.1
   firebase_core: ^2.32.0
   firebase_auth: ^4.19.0
   cloud_firestore: ^4.17.0
+  flutter_webrtc: ^0.9.48
+  permission_handler: ^11.3.0
+  nearby_connections: ^3.5.0
+  flutter_blue_plus: ^1.31.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
 flutter:
   uses-material-design: true
   assets:
-    - hamza_logo.png
+    - assets/
