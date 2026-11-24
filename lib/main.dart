@@ -69,6 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
+// ================= HOME - 4 TABS =================
 class HomeScreen extends StatefulWidget { @override _HomeScreenState createState() => _HomeScreenState(); }
 class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
@@ -78,16 +79,24 @@ class _HomeScreenState extends State<HomeScreen> {
     var q = await FirebaseFirestore.instance.collection("users").where("username", isEqualTo: searchController.text.trim()).get();
     setState(()=> results=q.docs);
   }
+  Future<void> saveToPhonebook(String otherUid, String otherName) async {
+    String myUid = FirebaseAuth.instance.currentUser!.uid;
+    await FirebaseFirestore.instance.collection("users").doc(myUid).collection("phonebook").doc(otherUid).set({
+      "uid": otherUid, "username": otherName, "savedAt": FieldValue.serverTimestamp(),
+    });
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("$otherName saved to Phonebook ✅")));
+  }
   @override Widget build(BuildContext context) {
     String myUid = FirebaseAuth.instance.currentUser!.uid;
     return Scaffold(
-      appBar: AppBar(title: Text("Hamza Jani - ${_tab==0 ? "Online" : _tab==1 ? "Nearby Offline" : "History"}"), actions: [IconButton(icon: Icon(Icons.logout), onPressed: ()=> FirebaseAuth.instance.signOut())]),
-      body: _tab==0 ? _buildOnlineTab(myUid) : _tab==1 ? NearbyScreen() : CallHistoryScreen(myUid: myUid),
+      appBar: AppBar(title: Text("Hamza Jani - ${_tab==0 ? "Online" : _tab==1 ? "Nearby" : _tab==2 ? "Phonebook" : "History"}"), actions: [IconButton(icon: Icon(Icons.logout), onPressed: ()=> FirebaseAuth.instance.signOut())]),
+      body: _tab==0 ? _buildOnlineTab(myUid) : _tab==1 ? NearbyScreen() : _tab==2 ? PhonebookScreen(myUid: myUid) : CallHistoryScreen(myUid: myUid),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _tab, onTap: (i)=> setState(()=> _tab=i),
+        currentIndex: _tab, onTap: (i)=> setState(()=> _tab=i), type: BottomNavigationBarType.fixed,
         items: [
           BottomNavigationBarItem(icon: Icon(Icons.wifi), label: "Online"),
           BottomNavigationBarItem(icon: Icon(Icons.bluetooth), label: "Nearby"),
+          BottomNavigationBarItem(icon: Icon(Icons.contacts), label: "Phonebook"),
           BottomNavigationBarItem(icon: Icon(Icons.history), label: "History"),
         ],
       ),
@@ -100,10 +109,18 @@ class _HomeScreenState extends State<HomeScreen> {
       TextField(controller: searchController, decoration: InputDecoration(labelText: "Search User ID", suffixIcon: IconButton(icon: Icon(Icons.search), onPressed: search))),
       Expanded(child: ListView.builder(itemCount: results.length, itemBuilder: (c,i){
         var data = results[i].data() as Map<String,dynamic>;
-        return ListTile(title: Text(data["username"] ?? ""), trailing: ElevatedButton(child: Text("CALL"), onPressed: (){
-          String callId = "${myUid}_${data["uid"]}_${DateTime.now().millisecondsSinceEpoch}";
-          Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, isCaller: true, otherUid: data["uid"], otherName: data["username"] ?? "", isOffline: false)));
-        }));
+        return Card(child: ListTile(
+          leading: CircleAvatar(child: Text((data["username"] ?? "?").toString().substring(0,1).toUpperCase())),
+          title: Text(data["username"] ?? ""),
+          subtitle: Text("Tap CALL or SAVE"),
+          trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(icon: Icon(Icons.bookmark_add, color: Colors.orange), onPressed: ()=> saveToPhonebook(data["uid"], data["username"] ?? "")),
+            ElevatedButton(child: Text("CALL"), onPressed: (){
+              String callId = "${myUid}_${data["uid"]}_${DateTime.now().millisecondsSinceEpoch}";
+              Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, isCaller: true, otherUid: data["uid"], otherName: data["username"] ?? "", isOffline: false)));
+            }),
+          ]),
+        ));
       })),
       StreamBuilder<QuerySnapshot>(
         stream: FirebaseFirestore.instance.collection("calls").where("to", isEqualTo: myUid).where("status", isEqualTo: "calling").snapshots(),
@@ -123,11 +140,42 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ================= PHONEBOOK =================
+class PhonebookScreen extends StatelessWidget {
+  final String myUid; PhonebookScreen({required this.myUid});
+  @override Widget build(BuildContext context){
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection("users").doc(myUid).collection("phonebook").orderBy("username").snapshots(),
+      builder: (c, snap){
+        if(!snap.hasData) return Center(child: CircularProgressIndicator());
+        if(snap.data!.docs.isEmpty) return Center(child: Padding(padding: EdgeInsets.all(20), child: Text("Phonebook is empty.\n\nGo to Online tab > Search a user > Tap Bookmark icon to save here.\n\nThen you can call anytime in 1 tap.", textAlign: TextAlign.center)));
+        return ListView.builder(itemCount: snap.data!.docs.length, itemBuilder: (c,i){
+          var data = snap.data!.docs[i].data() as Map<String,dynamic>;
+          String otherName = data["username"] ?? ""; String otherUid = data["uid"] ?? "";
+          return Card(child: ListTile(
+            leading: CircleAvatar(backgroundColor: Colors.blue[100], child: Text(otherName.isNotEmpty ? otherName.substring(0,1).toUpperCase() : "?")),
+            title: Text(otherName, style: TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text("Saved contact - Tap CALL anytime"),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              IconButton(icon: Icon(Icons.call, color: Colors.green, size: 28), onPressed: (){
+                String callId = "${myUid}_${otherUid}_${DateTime.now().millisecondsSinceEpoch}";
+                Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, isCaller: true, otherUid: otherUid, otherName: otherName, isOffline: false)));
+              }),
+              IconButton(icon: Icon(Icons.delete, color: Colors.red), onPressed: () async {
+                await FirebaseFirestore.instance.collection("users").doc(myUid).collection("phonebook").doc(otherUid).delete();
+              }),
+            ]),
+          ));
+        });
+      },
+    );
+  }
+}
+
 class NearbyScreen extends StatefulWidget { @override _NearbyScreenState createState() => _NearbyScreenState(); }
 class _NearbyScreenState extends State<NearbyScreen> {
   List<String> nearbyDevices = ["hamza2 - Near (Bluetooth)"];
-  bool isScanning = false;
-  String myName = "hamza1";
+  bool isScanning = false; String myName = "hamza1";
   @override void initState(){ super.initState(); _loadMyName(); }
   Future<void> _loadMyName() async {
     var uid = FirebaseAuth.instance.currentUser!.uid;
@@ -241,10 +289,7 @@ class _CallScreenState extends State<CallScreen> {
         FirebaseFirestore.instance.collection("calls").doc(widget.callId).collection(widget.isCaller ? "callerCandidates" : "calleeCandidates").add(c.toMap());
       }
     };
-    if(widget.isOffline){
-      setState(()=> status="Offline Nearby Call - ${widget.otherName} (Bluetooth)");
-      return;
-    }
+    if(widget.isOffline){ setState(()=> status="Offline Nearby Call - ${widget.otherName} (Bluetooth)"); return; }
     var callRef = FirebaseFirestore.instance.collection("calls").doc(widget.callId);
     String myUid = FirebaseAuth.instance.currentUser!.uid; String myName = "";
     var myDoc = await FirebaseFirestore.instance.collection("users").doc(myUid).get();
@@ -280,7 +325,7 @@ class _CallScreenState extends State<CallScreen> {
     return Scaffold(backgroundColor: Colors.black, appBar: AppBar(title: Text(status + (widget.isOffline ? " [OFFLINE]" : " [ONLINE]")), backgroundColor: Colors.black),
       body: Stack(children: [
         Container(child: RTCVideoView(_remoteRenderer, mirror: false, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)),
-        if(_remoteRenderer.srcObject==null) Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(color: Colors.white), SizedBox(height: 16), Text(widget.isOffline ? "Offline: Waiting for nearby phone video...\nMake sure other phone is also on Nearby tab" : "Waiting for ${widget.otherName} video...", style: TextStyle(color: Colors.white), textAlign: TextAlign.center)])),
+        if(_remoteRenderer.srcObject==null) Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(color: Colors.white), SizedBox(height: 16), Text(widget.isOffline ? "Offline: Waiting for nearby phone video..." : "Waiting for ${widget.otherName} video...", style: TextStyle(color: Colors.white), textAlign: TextAlign.center)])),
         Positioned(top: 10, right: 10, width: 120, height: 160, child: Container(decoration: BoxDecoration(border: Border.all(color: Colors.white)), child: RTCVideoView(_localRenderer, mirror: true))),
         Positioned(bottom: 20, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
           FloatingActionButton(backgroundColor: micOn?Colors.white:Colors.red, onPressed: (){ setState(()=> micOn=!micOn); _localStream?.getAudioTracks().forEach((t)=> t.enabled=micOn); }, child: Icon(micOn?Icons.mic:Icons.mic_off)),
