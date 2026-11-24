@@ -29,12 +29,70 @@ jobs:
           cp google-services.json android/app/google-services.json
           ls -lh android/app/google-services.json
 
-      - name: Setup Firebase
+      - name: Generate Firebase Options from json
+        run: |
+          python3 << 'PYEOF'
+          import json, pathlib
+          data = json.loads(pathlib.Path("google-services.json").read_text())
+          client = data["client"][0]
+          project = data["project_info"]
+          api_key = client["api_key"][0]["current_key"]
+          app_id = client["client_info"]["mobilesdk_app_id"]
+          package_name = client["client_info"]["android_client_info"]["package_name"]
+          project_id = project["project_id"]
+          storage = project.get("storage_bucket","")
+          print(f"Found package: {package_name}, project: {project_id}")
+
+          dart_code = f'''
+          import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+          import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform, kIsWeb;
+
+          class DefaultFirebaseOptions {{
+            static FirebaseOptions get currentPlatform {{
+              return android;
+            }}
+            static const FirebaseOptions android = FirebaseOptions(
+              apiKey: '{api_key}',
+              appId: '{app_id}',
+              messagingSenderId: '{client["client_info"]["mobilesdk_app_id"].split(":")[1] if ":" in app_id else ""}',
+              projectId: '{project_id}',
+              storageBucket: '{storage}',
+            );
+          }}
+          '''
+          # More reliable messagingSenderId extraction
+          # Try to get from project_info or from client
+          try:
+              sender_id = data["client"][0]["client_info"]["mobilesdk_app_id"].split(":")[1]
+          except:
+              sender_id = project.get("project_number","")
+          # Actually better: get from client_info or fallback
+          # For safety, also try project_number
+          project_number = project.get("project_number", sender_id)
+          
+          dart_code_fixed = f'''
+          import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+
+          class DefaultFirebaseOptions {{
+            static FirebaseOptions get currentPlatform => android;
+            static const FirebaseOptions android = FirebaseOptions(
+              apiKey: '{api_key}',
+              appId: '{app_id}',
+              messagingSenderId: '{project_number}',
+              projectId: '{project_id}',
+              storageBucket: '{storage}',
+            );
+          }}
+          '''
+          pathlib.Path("lib/firebase_options.dart").write_text(dart_code_fixed)
+          print("Generated lib/firebase_options.dart")
+          print(dart_code_fixed)
+          PYEOF
+
+      - name: Setup Firebase Plugins
         run: |
           python3 << 'PYEOF'
           import pathlib
-
-          # 1. settings.gradle - FIXED: keep version number
           p = pathlib.Path("android/settings.gradle")
           t = p.read_text()
           if "google-services" not in t:
@@ -42,29 +100,14 @@ jobs:
               new = old + '\n    id "com.google.gms.google-services" version "4.4.2" apply false'
               if old in t:
                   t = t.replace(old, new)
-              else:
-                  # Fallback if Flutter version changes the line slightly
-                  t = t.replace(
-                      'id "com.android.application"',
-                      'id "com.android.application"\n    id "com.google.gms.google-services" version "4.4.2" apply false'
-                  )
-              p.write_text(t)
-              print("settings.gradle FIXED")
-          else:
-              print("settings.gradle already has google-services")
-
-          # 2. app/build.gradle
+                  p.write_text(t)
+                  print("settings.gradle FIXED")
           p2 = pathlib.Path("android/app/build.gradle")
           t2 = p2.read_text()
           if "google-services" not in t2:
-              t2 = t2.replace(
-                  'id "dev.flutter.flutter-gradle-plugin"',
-                  'id "dev.flutter.flutter-gradle-plugin"\n    id "com.google.gms.google-services"'
-              )
+              t2 = t2.replace('id "dev.flutter.flutter-gradle-plugin"', 'id "dev.flutter.flutter-gradle-plugin"\n    id "com.google.gms.google-services"')
               p2.write_text(t2)
               print("app/build.gradle FIXED")
-          else:
-              print("app/build.gradle already has google-services")
           PYEOF
 
       - name: Add Permissions
@@ -76,9 +119,6 @@ jobs:
           if "RECORD_AUDIO" not in t:
               t = t.replace("<application", '<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <application')
               p.write_text(t)
-              print("Permissions added")
-          else:
-              print("Permissions already there")
           PYEOF
 
       - name: Build APK
