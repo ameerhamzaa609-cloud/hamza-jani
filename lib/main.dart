@@ -8,26 +8,41 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  runApp(const HamzaApp());
+  String initError = '';
+  try {
+    await Firebase.initializeApp();
+  } catch (e) {
+    initError = '$e';
+  }
+  runApp(HamzaApp(initError: initError));
 }
 
 class HamzaApp extends StatelessWidget {
-  const HamzaApp({super.key});
+  final String initError;
+  const HamzaApp({super.key, required this.initError});
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snap) {
-          if (snap.connectionState == ConnectionState.waiting) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
-          }
-          if (snap.hasData) return const HomeScreen();
-          return const AuthScreen();
-        },
-      ),
+      home: initError.isNotEmpty
+          ? Scaffold(
+              body: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Text('Firebase Error:\n\n$initError\n\nCheck google-services.json in 【entity-GitHub¦canonical_name=GitHub】', textAlign: TextAlign.center),
+                ),
+              ),
+            )
+          : StreamBuilder<User?>(
+              stream: FirebaseAuth.instance.authStateChanges(),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Scaffold(body: Center(child: CircularProgressIndicator()));
+                }
+                if (snap.hasData) return const HomeScreen();
+                return const AuthScreen();
+              },
+            ),
     );
   }
 }
@@ -44,9 +59,7 @@ class _AuthScreenState extends State<AuthScreen> {
   final _passCtrl = TextEditingController();
   String msg = 'Create your User ID';
   bool isLogin = false;
-
   String emailFromId(String id) => '${id.trim().toLowerCase()}@hamzajani.app';
-
   Future<void> submit() async {
     final id = _idCtrl.text.trim().toLowerCase();
     final pass = _passCtrl.text.trim();
@@ -76,7 +89,6 @@ class _AuthScreenState extends State<AuthScreen> {
       setState(() => msg = 'Error $e');
     }
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -118,7 +130,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String myName = '';
   String myUid = '';
   StreamSubscription? _callSub;
-
   @override
   void initState() {
     super.initState();
@@ -126,25 +137,17 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadMe();
     _listenIncoming();
   }
-
   @override
   void dispose() {
     _callSub?.cancel();
     super.dispose();
   }
-
   Future<void> _loadMe() async {
     final doc = await FirebaseFirestore.instance.collection('users').doc(myUid).get();
     if (doc.exists) setState(() => myName = doc.data()!['username'] ?? '');
   }
-
   void _listenIncoming() {
-    _callSub = FirebaseFirestore.instance
-        .collection('calls')
-        .where('calleeId', isEqualTo: myUid)
-        .where('status', isEqualTo: 'ringing')
-        .snapshots()
-        .listen((snap) {
+    _callSub = FirebaseFirestore.instance.collection('calls').where('calleeId', isEqualTo: myUid).where('status', isEqualTo: 'ringing').snapshots().listen((snap) {
       for (var doc in snap.docs) {
         final data = doc.data();
         if (!mounted) return;
@@ -175,18 +178,12 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     });
   }
-
   Future<void> searchUsers() async {
     final q = _searchCtrl.text.trim().toLowerCase();
     if (q.isEmpty) return;
-    final snap = await FirebaseFirestore.instance
-        .collection('users')
-        .where('searchName', isGreaterThanOrEqualTo: q)
-        .where('searchName', isLessThanOrEqualTo: q + '\uf8ff')
-        .get();
+    final snap = await FirebaseFirestore.instance.collection('users').where('searchName', isGreaterThanOrEqualTo: q).where('searchName', isLessThanOrEqualTo: q + '\uf8ff').get();
     setState(() => results = snap.docs.map((d) => d.data()).where((u) => u['uid'] != myUid).toList());
   }
-
   Future<void> startCall(Map<String, dynamic> other) async {
     final callRef = FirebaseFirestore.instance.collection('calls').doc();
     await callRef.set({
@@ -200,7 +197,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callRef.id, isCaller: true, otherName: other['username'] ?? '')));
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -264,7 +260,6 @@ class _CallScreenState extends State<CallScreen> {
   final _remoteRenderer = RTCVideoRenderer();
   StreamSubscription? _callSub;
   StreamSubscription? _candSub;
-
   @override
   void initState() {
     super.initState();
@@ -272,7 +267,6 @@ class _CallScreenState extends State<CallScreen> {
     _remoteRenderer.initialize();
     _setupCall();
   }
-
   @override
   void dispose() {
     _callSub?.cancel();
@@ -283,7 +277,6 @@ class _CallScreenState extends State<CallScreen> {
     _remoteRenderer.dispose();
     super.dispose();
   }
-
   Future<RTCPeerConnection> _createPC(String myRole) async {
     final pc = await createPeerConnection({
       'iceServers': [
@@ -316,13 +309,12 @@ class _CallScreenState extends State<CallScreen> {
     });
     return pc;
   }
-
   Future<void> _setupCall() async {
     await Permission.microphone.request();
     await Permission.camera.request();
     final callRef = FirebaseFirestore.instance.collection('calls').doc(widget.callId);
     if (widget.isCaller) {
-      setState(() => status = 'Calling ${widget.otherName} - Waiting for Accept');
+      setState(() => status = 'Calling ${widget.otherName} - Waiting');
       _pc = await _createPC('caller');
       final offer = await _pc!.createOffer();
       await _pc!.setLocalDescription(offer);
@@ -367,12 +359,10 @@ class _CallScreenState extends State<CallScreen> {
       });
     }
   }
-
   Future<void> _endCall() async {
     await FirebaseFirestore.instance.collection('calls').doc(widget.callId).update({'status': 'ended'});
     if (mounted) Navigator.pop(context);
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -390,11 +380,7 @@ class _CallScreenState extends State<CallScreen> {
           ),
           Padding(
             padding: const EdgeInsets.all(16),
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: _endCall,
-              child: const Text('END CALL'),
-            ),
+            child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.red), onPressed: _endCall, child: const Text('END CALL')),
           ),
         ],
       ),
