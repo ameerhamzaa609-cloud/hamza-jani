@@ -26,8 +26,6 @@ jobs:
       - name: Create Project
         run: |
           flutter create --project-name hamza_jani --org com.example --platforms android .
-          echo "=== google-services.json check ==="
-          ls -lh google-services.json
           cp google-services.json android/app/google-services.json
           ls -lh android/app/google-services.json
 
@@ -36,14 +34,19 @@ jobs:
           python3 << 'PYEOF'
           import pathlib
 
-          # 1. settings.gradle
+          # 1. settings.gradle - FIXED: keep version number
           p = pathlib.Path("android/settings.gradle")
           t = p.read_text()
           if "google-services" not in t:
-              if 'id "com.google.gms.google-services"' not in t:
+              old = 'id "org.jetbrains.kotlin.android" version "1.7.10" apply false'
+              new = old + '\n    id "com.google.gms.google-services" version "4.4.2" apply false'
+              if old in t:
+                  t = t.replace(old, new)
+              else:
+                  # Fallback if Flutter version changes the line slightly
                   t = t.replace(
-                      'id "org.jetbrains.kotlin.android"',
-                      'id "org.jetbrains.kotlin.android"\n    id "com.google.gms.google-services" version "4.4.2" apply false'
+                      'id "com.android.application"',
+                      'id "com.android.application"\n    id "com.google.gms.google-services" version "4.4.2" apply false'
                   )
               p.write_text(t)
               print("settings.gradle FIXED")
