@@ -14,7 +14,6 @@ dependencies:
   cloud_firestore: ^4.17.0
   flutter_webrtc: ^0.9.48
   permission_handler: ^11.3.0
-  nearby_connections: ^4.3.0
 
 dev_dependencies:
   flutter_test:
