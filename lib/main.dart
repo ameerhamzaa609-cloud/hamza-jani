@@ -26,14 +26,11 @@ class HamzaApp extends StatelessWidget {
 
 class AuthCheck extends StatelessWidget {
   @override Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) return Scaffold(body: Center(child: CircularProgressIndicator()));
-        if (snap.hasData) return HomeScreen();
-        return LoginScreen();
-      },
-    );
+    return StreamBuilder<User?>(stream: FirebaseAuth.instance.authStateChanges(), builder: (context, snap) {
+      if (snap.connectionState == ConnectionState.waiting) return Scaffold(body: Center(child: CircularProgressIndicator()));
+      if (snap.hasData) return HomeScreen();
+      return LoginScreen();
+    });
   }
 }
 
@@ -116,8 +113,9 @@ class _GroupScreenState extends State<GroupScreen> {
 class GroupCallScreen extends StatefulWidget { final String groupId; final String groupName; final String myUid; GroupCallScreen({required this.groupId, required this.groupName, required this.myUid}); @override _GroupCallScreenState createState() => _GroupCallScreenState(); }
 class _GroupCallScreenState extends State<GroupCallScreen> {
   MediaStream? _localStream; final _localRenderer = RTCVideoRenderer(); Map<String, RTCVideoRenderer> remoteRenderers = {}; Map<String, RTCPeerConnection> pcs = {}; Map<String, List<RTCIceCandidate>> pending = {};
-  bool micOn = true; bool camOn = true; bool speakerOn = true; String myName = "";
-  @override void initState(){ super.initState(); _init(); }
+  bool micOn = true; bool camOn = true; bool speakerOn = true; String myName = ""; String err = "";
+  @override void initState(){ super.initState(); _initSafe(); }
+  Future<void> _initSafe() async { try { await _init(); } catch(e){ if(mounted) setState(()=> err=e.toString()); } }
   Future<void> _init() async {
     await _localRenderer.initialize(); await [Permission.microphone, Permission.camera].request(); await Helper.setSpeakerphoneOn(true);
     var myDoc = await FirebaseFirestore.instance.collection("users").doc(widget.myUid).get(); if(myDoc.exists) myName = (myDoc.data() as Map<String,dynamic>)["username"] ?? "";
@@ -129,24 +127,22 @@ class _GroupCallScreenState extends State<GroupCallScreen> {
     FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("signals").where("to", isEqualTo: widget.myUid).snapshots().listen((snap){ for(var doc in snap.docChanges){ if(doc.type == DocumentChangeType.added) _handleSignal(doc.doc.data() as Map<String,dynamic>); } });
   }
   Future<void> _createPeerFor(String peerUid) async {
-    var renderer = RTCVideoRenderer(); await renderer.initialize(); setState(()=> remoteRenderers[peerUid] = renderer);
-    Map<String,dynamic> config = {"iceServers": [{"urls": "stun:stun.l.google.com:19302"}, {"urls": "turn:openrelay.metered.ca:80", "username": "openrelayproject", "credential": "openrelayproject"}, {"urls": "turn:openrelay.metered.ca:443", "username": "openrelayproject", "credential": "openrelayproject"}]};
-    RTCPeerConnection pc = await createPeerConnection(config); pcs[peerUid] = pc; pending[peerUid] = [];
-    for(var t in _localStream!.getTracks()) pc.addTrack(t, _localStream!);
-    pc.onTrack = (e){ if(e.streams.isNotEmpty){ e.streams[0].getAudioTracks().forEach((t)=> t.enabled = true); e.streams[0].getVideoTracks().forEach((t)=> t.enabled = true); renderer.srcObject = e.streams[0]; setState((){}); } };
-    pc.onIceCandidate = (c){ if(c.candidate != null){ FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("signals").add({"from": widget.myUid, "to": peerUid, "type": "candidate", "candidate": c.toMap(), "time": FieldValue.serverTimestamp()}); } };
-    if(widget.myUid.compareTo(peerUid) < 0){ RTCSessionDescription offer = await pc.createOffer(); await pc.setLocalDescription(offer); await FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("signals").add({"from": widget.myUid, "to": peerUid, "type": "offer", "sdp": offer.sdp, "sdpType": offer.type, "time": FieldValue.serverTimestamp()}); }
+    try {
+      var renderer = RTCVideoRenderer(); await renderer.initialize(); if(mounted) setState(()=> remoteRenderers[peerUid] = renderer);
+      Map<String,dynamic> config = {"iceServers": [{"urls": "stun:stun.l.google.com:19302"}, {"urls": "turn:openrelay.metered.ca:80", "username": "openrelayproject", "credential": "openrelayproject"}, {"urls": "turn:openrelay.metered.ca:443", "username": "openrelayproject", "credential": "openrelayproject"}]};
+      RTCPeerConnection pc = await createPeerConnection(config); pcs[peerUid] = pc; pending[peerUid] = [];
+      for(var t in _localStream!.getTracks()) pc.addTrack(t, _localStream!);
+      pc.onTrack = (e){ if(e.streams.isNotEmpty){ e.streams[0].getAudioTracks().forEach((t)=> t.enabled = true); e.streams[0].getVideoTracks().forEach((t)=> t.enabled = true); renderer.srcObject = e.streams[0]; setState((){}); } };
+      pc.onIceCandidate = (c){ if(c.candidate != null){ FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("signals").add({"from": widget.myUid, "to": peerUid, "type": "candidate", "candidate": c.toMap(), "time": FieldValue.serverTimestamp()}); } };
+      if(widget.myUid.compareTo(peerUid) < 0){ RTCSessionDescription offer = await pc.createOffer(); await pc.setLocalDescription(offer); await FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("signals").add({"from": widget.myUid, "to": peerUid, "type": "offer", "sdp": offer.sdp, "sdpType": offer.type, "time": FieldValue.serverTimestamp()}); }
+    } catch(e){ if(mounted) setState(()=> err=e.toString()); }
   }
-  Future<void> _handleSignal(Map<String,dynamic> data) async {
-    String from = data["from"]; String type = data["type"]; if(!pcs.containsKey(from)) await _createPeerFor(from); var pc = pcs[from]!;
-    if(type == "offer"){ await pc.setRemoteDescription(RTCSessionDescription(data["sdp"], data["sdpType"])); for(var cand in pending[from]!) await pc.addCandidate(cand); pending[from]!.clear(); RTCSessionDescription ans = await pc.createAnswer(); await pc.setLocalDescription(ans); await FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("signals").add({"from": widget.myUid, "to": from, "type": "answer", "sdp": ans.sdp, "sdpType": ans.type, "time": FieldValue.serverTimestamp()}); }
-    else if(type == "answer"){ if(pc.getRemoteDescription() == null){ await pc.setRemoteDescription(RTCSessionDescription(data["sdp"], data["sdpType"])); for(var cand in pending[from]!) await pc.addCandidate(cand); pending[from]!.clear(); } }
-    else if(type == "candidate"){ var c = data["candidate"]; var cand = RTCIceCandidate(c["candidate"], c["sdpMid"], c["sdpMLineIndex"]); if(pc.getRemoteDescription() == null){ pending[from]!.add(cand); } else { await pc.addCandidate(cand); } }
-  }
+  Future<void> _handleSignal(Map<String,dynamic> data) async { try { String from = data["from"]; String type = data["type"]; if(!pcs.containsKey(from)) await _createPeerFor(from); var pc = pcs[from]!; if(type == "offer"){ await pc.setRemoteDescription(RTCSessionDescription(data["sdp"], data["sdpType"])); for(var cand in pending[from]!) await pc.addCandidate(cand); pending[from]!.clear(); RTCSessionDescription ans = await pc.createAnswer(); await pc.setLocalDescription(ans); await FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("signals").add({"from": widget.myUid, "to": from, "type": "answer", "sdp": ans.sdp, "sdpType": ans.type, "time": FieldValue.serverTimestamp()}); } else if(type == "answer"){ if(pc.getRemoteDescription() == null){ await pc.setRemoteDescription(RTCSessionDescription(data["sdp"], data["sdpType"])); for(var cand in pending[from]!) await pc.addCandidate(cand); pending[from]!.clear(); } } else if(type == "candidate"){ var c = data["candidate"]; var cand = RTCIceCandidate(c["candidate"], c["sdpMid"], c["sdpMLineIndex"]); if(pc.getRemoteDescription() == null){ pending[from]!.add(cand); } else { await pc.addCandidate(cand); } } } catch(e){} }
   Future<void> _removePeer(String uid) async { await pcs[uid]?.close(); pcs.remove(uid); remoteRenderers[uid]?.dispose(); setState(()=> remoteRenderers.remove(uid)); }
-  Future<void> _leave() async { await FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("members").doc(widget.myUid).delete(); for(var pc in pcs.values) await pc.close(); await _localStream?.dispose(); if(mounted) Navigator.pop(context); }
+  Future<void> _leave() async { try { await FirebaseFirestore.instance.collection("group_calls").doc(widget.groupId).collection("members").doc(widget.myUid).delete(); } catch(e){} for(var pc in pcs.values) await pc.close(); await _localStream?.dispose(); if(mounted) Navigator.pop(context); }
   @override void dispose(){ _localRenderer.dispose(); for(var r in remoteRenderers.values) r.dispose(); for(var pc in pcs.values) pc.close(); _localStream?.dispose(); super.dispose(); }
   @override Widget build(BuildContext context){
+    if(err.isNotEmpty) return Scaffold(backgroundColor: Colors.white, appBar: AppBar(title: Text("Group Error")), body: Padding(padding: EdgeInsets.all(20), child: Column(children: [Icon(Icons.error, color: Colors.red, size: 60), SizedBox(height: 10), Text(err, style: TextStyle(color: Colors.red)), SizedBox(height: 20), ElevatedButton(onPressed: ()=> Navigator.pop(context), child: Text("GO BACK"))])));
     List<Widget> videos = [Expanded(child: Container(decoration: BoxDecoration(border: Border.all(color: Colors.white)), child: Stack(children: [RTCVideoView(_localRenderer, mirror: true), Positioned(bottom: 4, left: 4, child: Container(color: Colors.black54, padding: EdgeInsets.all(4), child: Text("You - $myName", style: TextStyle(color: Colors.white))))])))];
     remoteRenderers.forEach((uid, renderer){ videos.add(Expanded(child: Container(decoration: BoxDecoration(border: Border.all(color: Colors.white)), child: RTCVideoView(renderer)))); });
     return Scaffold(backgroundColor: Colors.black, appBar: AppBar(title: Text("Group: ${widget.groupName} (${remoteRenderers.length + 1})"), backgroundColor: Colors.black),
@@ -188,7 +184,7 @@ class _CallHistoryScreenState extends State<CallHistoryScreen> with SingleTicker
   Widget _historyList(String filter){ return StreamBuilder<QuerySnapshot>(stream: FirebaseFirestore.instance.collection("calls").orderBy("time", descending: true).limit(100).snapshots(), builder: (c, snap){ if(!snap.hasData) return Center(child: CircularProgressIndicator()); var docs = snap.data!.docs.where((d){ var data = d.data() as Map<String,dynamic>; bool isMine = data["from"]==widget.myUid || data["to"]==widget.myUid; if(!isMine) return false; String type = ""; if(data["from"]==widget.myUid) type="dialed"; else if(data["status"]=="missed") type="missed"; else type="received"; if(filter=="all") return true; return type==filter; }).toList(); if(docs.isEmpty) return Center(child: Text("No $filter calls yet")); return ListView.builder(itemCount: docs.length, itemBuilder: (c,i){ var data = docs[i].data() as Map<String,dynamic>; bool isOutgoing = data["from"]==widget.myUid; String otherName = isOutgoing ? (data["toName"] ?? "") : (data["fromName"] ?? ""); String status = data["status"] ?? ""; IconData icon; Color color; String label; if(isOutgoing){ icon=Icons.call_made; color=Colors.green; label="Dialed"; } else if(status=="missed"){ icon=Icons.call_missed; color=Colors.red; label="Missed"; } else { icon=Icons.call_received; color=Colors.blue; label="Received"; } return ListTile(leading: CircleAvatar(backgroundColor: color.withOpacity(0.15), child: Icon(icon, color: color)), title: Text(otherName, style: TextStyle(fontWeight: FontWeight.bold)), subtitle: Text(label), trailing: IconButton(icon: Icon(Icons.call, color: Colors.green), onPressed: (){ String otherUid = isOutgoing ? data["to"] : data["from"]; String callId = "${widget.myUid}_${otherUid}_${DateTime.now().millisecondsSinceEpoch}"; Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, isCaller: true, otherUid: otherUid, otherName: otherName, audioOnly: false))); })); }); }); }
 }
 
-// ===== FIXED CALL - AUDIO + VIDEO BOTH FIXED =====
+// ===== WHITE PAGE FIXED - CALL SCREEN WITH ERROR SHOW =====
 class CallScreen extends StatefulWidget {
   final String callId; final bool isCaller; final String otherUid; final String otherName; final bool audioOnly;
   CallScreen({required this.callId, required this.isCaller, required this.otherUid, required this.otherName, required this.audioOnly});
@@ -197,97 +193,81 @@ class CallScreen extends StatefulWidget {
 class _CallScreenState extends State<CallScreen> {
   RTCPeerConnection? _pc; MediaStream? _localStream;
   final _localRenderer = RTCVideoRenderer(); final _remoteRenderer = RTCVideoRenderer();
-  String status = "Connecting..."; bool micOn = true; bool camOn = true; bool speakerOn = true; late bool audioOnly;
-  List<RTCIceCandidate> _pending = []; bool _remoteDescSet = false; bool _remoteVideoGot = false;
-  Future<void> _addCandidate(RTCIceCandidate cand) async {
-    if (!_remoteDescSet) { _pending.add(cand); return; }
-    try { await _pc?.addCandidate(cand); } catch(e){}
-  }
+  String status = "Connecting..."; String errorMsg = ""; bool micOn = true; bool camOn = true; bool speakerOn = true; late bool audioOnly;
+  List<RTCIceCandidate> _pending = []; bool _remoteDescSet = false; bool _remoteVideoGot = false; bool _answered = false;
+  @override void initState() { super.initState(); audioOnly = widget.audioOnly; camOn = !audioOnly; _initSafe(); }
+  Future<void> _initSafe() async { try { await _init(); } catch(e){ if(mounted) setState(()=> {status="Error", errorMsg=e.toString()}); } }
+  Future<void> _addCandidate(RTCIceCandidate cand) async { if (!_remoteDescSet) { _pending.add(cand); return; } try { await _pc?.addCandidate(cand); } catch(e){} }
   Future<void> _flush() async { for(var c in _pending){ try { await _pc?.addCandidate(c); } catch(e){} } _pending.clear(); }
-  Future<void> _forceAudio() async {
-    // Force speaker ON, mic ON, remote audio ON
-    await Helper.setSpeakerphoneOn(true);
-    _localStream?.getAudioTracks().forEach((t){ t.enabled = true; });
-    if(_remoteRenderer.srcObject != null){ (_remoteRenderer.srcObject as MediaStream).getAudioTracks().forEach((t){ t.enabled = true; }); }
-  }
+  Future<void> _forceAudio() async { try { await Helper.setSpeakerphoneOn(true); } catch(e){} _localStream?.getAudioTracks().forEach((t){ t.enabled = true; }); if(_remoteRenderer.srcObject != null){ try { (_remoteRenderer.srcObject as MediaStream).getAudioTracks().forEach((t){ t.enabled = true; }); } catch(e){} } }
   Future<void> _init() async {
-    await _localRenderer.initialize(); await _remoteRenderer.initialize();
-    await [Permission.microphone, Permission.camera].request();
+    if(mounted) setState(()=> status="Starting camera + mic...");
+    try { await _localRenderer.initialize(); } catch(e){ print("local renderer: $e"); }
+    try { await _remoteRenderer.initialize(); } catch(e){ print("remote renderer: $e"); }
+    var micStatus = await Permission.microphone.request();
+    var camStatus = await Permission.camera.request();
+    if(micStatus.isDenied){ if(mounted) setState(()=> errorMsg="Mic permission DENIED. Go to Settings > Apps > Hamza Jani > Permissions > Microphone > Allow"); return; }
     await Helper.setSpeakerphoneOn(true);
-    // AUDIO FIX: Strong audio settings
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      "audio": {"echoCancellation": true, "noiseSuppression": true, "autoGainControl": true},
-      "video": audioOnly ? false : {"facingMode": "user", "width": 640, "height": 480}
-    });
+    // Get media - if this fails, show error, NOT white page
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia({"audio": {"echoCancellation": true, "noiseSuppression": true, "autoGainControl": true}, "video": audioOnly ? false : {"facingMode": "user", "width": 640, "height": 480}});
+    } catch(e){
+      if(mounted) setState(()=> errorMsg="Camera/Mic failed: $e\n\nFix: Settings > Apps > Hamza Jani > Permissions > Allow Camera + Microphone, then close app and open again.");
+      return;
+    }
     _localStream!.getAudioTracks().forEach((t){ t.enabled = true; });
     _localStream!.getVideoTracks().forEach((t){ t.enabled = true; });
     if(!audioOnly) _localRenderer.srcObject = _localStream;
-    setState(()=> status = "Mic + Camera ready, connecting to ${widget.otherName}...");
-    Map<String,dynamic> config = {"iceServers": [
-      {"urls": "stun:stun.l.google.com:19302"}, {"urls": "stun:stun1.l.google.com:19302"},
-      {"urls": "turn:openrelay.metered.ca:80", "username": "openrelayproject", "credential": "openrelayproject"},
-      {"urls": "turn:openrelay.metered.ca:443", "username": "openrelayproject", "credential": "openrelayproject"},
-      {"urls": "turn:openrelay.metered.ca:443?transport=tcp", "username": "openrelayproject", "credential": "openrelayproject"},
-    ]};
+    if(mounted) setState(()=> status = "Camera ready, connecting to ${widget.otherName}...");
+    Map<String,dynamic> config = {"iceServers": [{"urls": "stun:stun.l.google.com:19302"}, {"urls": "stun:stun1.l.google.com:19302"}, {"urls": "turn:openrelay.metered.ca:80", "username": "openrelayproject", "credential": "openrelayproject"}, {"urls": "turn:openrelay.metered.ca:443", "username": "openrelayproject", "credential": "openrelayproject"}, {"urls": "turn:openrelay.metered.ca:443?transport=tcp", "username": "openrelayproject", "credential": "openrelayproject"}]};
     _pc = await createPeerConnection(config);
     for(var track in _localStream!.getTracks()){ _pc!.addTrack(track, _localStream!); }
-    _pc!.onTrack = (e){
-      if(e.streams.isNotEmpty){
-        // AUDIO FIX: Enable remote audio + video tracks immediately
-        e.streams[0].getAudioTracks().forEach((t){ t.enabled = true; });
-        e.streams[0].getVideoTracks().forEach((t){ t.enabled = true; });
-        _remoteRenderer.srcObject = e.streams[0];
-        _forceAudio();
-        setState(()=> {status="Connected - ${widget.otherName} - Can hear + see?", _remoteVideoGot=true});
-      }
-    };
-    _pc!.onAddStream = (s){ s.getAudioTracks().forEach((t)=> t.enabled = true); s.getVideoTracks().forEach((t)=> t.enabled = true); _remoteRenderer.srcObject = s; _forceAudio(); setState(()=> {status="Connected - ${widget.otherName}", _remoteVideoGot=true}); };
-    _pc!.onConnectionState = (state){ if(state == RTCPeerConnectionState.RTCPeerConnectionStateConnected){ _forceAudio(); setState(()=> status="Connected - ${widget.otherName}"); } };
-    _pc!.onIceCandidate = (c){ if(c.candidate != null){ FirebaseFirestore.instance.collection("calls").doc(widget.callId).collection(widget.isCaller ? "callerCandidates" : "calleeCandidates").add(c.toMap()); } };
+    _pc!.onTrack = (e){ if(e.streams.isNotEmpty){ e.streams[0].getAudioTracks().forEach((t){ t.enabled = true; }); e.streams[0].getVideoTracks().forEach((t){ t.enabled = true; }); _remoteRenderer.srcObject = e.streams[0]; _forceAudio(); if(mounted) setState(()=> {status="Connected - ${widget.otherName}", _remoteVideoGot=true}); } };
+    _pc!.onAddStream = (s){ s.getAudioTracks().forEach((t)=> t.enabled = true); s.getVideoTracks().forEach((t)=> t.enabled = true); _remoteRenderer.srcObject = s; _forceAudio(); if(mounted) setState(()=> {status="Connected - ${widget.otherName}", _remoteVideoGot=true}); };
+    _pc!.onConnectionState = (state){ if(state == RTCPeerConnectionState.RTCPeerConnectionStateConnected){ _forceAudio(); if(mounted) setState(()=> status="Connected - ${widget.otherName}"); } };
+    _pc!.onIceCandidate = (c){ if(c.candidate != null){ try { FirebaseFirestore.instance.collection("calls").doc(widget.callId).collection(widget.isCaller ? "callerCandidates" : "calleeCandidates").add(c.toMap()); } catch(e){} } };
     var callRef = FirebaseFirestore.instance.collection("calls").doc(widget.callId);
     String myUid = FirebaseAuth.instance.currentUser!.uid; String myName = "";
-    var myDoc = await FirebaseFirestore.instance.collection("users").doc(myUid).get();
-    if(myDoc.exists) myName = (myDoc.data() as Map<String,dynamic>)["username"] ?? "";
+    var myDoc = await FirebaseFirestore.instance.collection("users").doc(myUid).get(); if(myDoc.exists) myName = (myDoc.data() as Map<String,dynamic>)["username"] ?? "";
     if(widget.isCaller){
       await callRef.set({"from": myUid, "fromName": myName, "to": widget.otherUid, "toName": widget.otherName, "status": "calling", "audioOnly": audioOnly, "time": FieldValue.serverTimestamp()});
       RTCSessionDescription offer = await _pc!.createOffer(); await _pc!.setLocalDescription(offer); await callRef.update({"offer": offer.toMap()});
-      setState(()=> status="Calling ${widget.otherName}... ${audioOnly ? "(Audio)" : "(Video)"}");
-      callRef.snapshots().listen((snap) async { var d=snap.data(); if(d==null) return; if(d["answer"]!=null && !_remoteDescSet){ await _pc!.setRemoteDescription(RTCSessionDescription(d["answer"]["sdp"], d["answer"]["type"])); _remoteDescSet = true; await _flush(); _forceAudio(); setState(()=> status="Answer received - Connecting audio + video..."); } if(d["status"]=="ended") Navigator.pop(context); });
+      if(mounted) setState(()=> status="Calling ${widget.otherName}... ${audioOnly ? "(Audio)" : "(Video)"}");
+      callRef.snapshots().listen((snap) async { var d=snap.data(); if(d==null) return; if(d["answer"]!=null && !_remoteDescSet){ try { await _pc!.setRemoteDescription(RTCSessionDescription(d["answer"]["sdp"], d["answer"]["type"])); _remoteDescSet = true; await _flush(); _forceAudio(); if(mounted) setState(()=> status="Answer received - Connecting audio + video..."); } catch(e){} } if(d["status"]=="ended" && mounted) Navigator.pop(context); });
       callRef.collection("calleeCandidates").snapshots().listen((snap){ for(var doc in snap.docChanges){ if(doc.type==DocumentChangeType.added){ var d=doc.doc.data(); _addCandidate(RTCIceCandidate(d!["candidate"], d["sdpMid"], d["sdpMLineIndex"])); } } });
     } else {
-      var snap = await callRef.get(); var data = snap.data() as Map<String,dynamic>;
-      await _pc!.setRemoteDescription(RTCSessionDescription(data["offer"]["sdp"], data["offer"]["type"])); _remoteDescSet = true; await _flush();
-      RTCSessionDescription answer = await _pc!.createAnswer(); await _pc!.setLocalDescription(answer); await callRef.update({"answer": answer.toMap(), "status": "accepted"});
-      _forceAudio(); setState(()=> status="Accepted - Connecting audio + video...");
+      // CALLEE FIX: Do NOT do get() once - LISTEN for offer, it may come 1-2 sec later
+      if(mounted) setState(()=> status="Waiting for offer from ${widget.otherName}...");
+      callRef.snapshots().listen((snap) async {
+        var data = snap.data(); if(data==null) return;
+        if(data["offer"]!=null && !_answered){
+          _answered = true;
+          try {
+            await _pc!.setRemoteDescription(RTCSessionDescription(data["offer"]["sdp"], data["offer"]["type"])); _remoteDescSet = true; await _flush();
+            RTCSessionDescription answer = await _pc!.createAnswer(); await _pc!.setLocalDescription(answer); await callRef.update({"answer": answer.toMap(), "status": "accepted"});
+            _forceAudio(); if(mounted) setState(()=> status="Accepted - Connecting audio + video...");
+          } catch(e){ if(mounted) setState(()=> errorMsg="Answer failed: $e"); }
+        }
+        if(data["status"]=="ended" && mounted) Navigator.pop(context);
+      });
       callRef.collection("callerCandidates").snapshots().listen((snap){ for(var doc in snap.docChanges){ if(doc.type==DocumentChangeType.added){ var d=doc.doc.data(); _addCandidate(RTCIceCandidate(d!["candidate"], d["sdpMid"], d["sdpMLineIndex"])); } } });
-      callRef.snapshots().listen((s){ var d=s.data(); if(d!=null && d["status"]=="ended") Navigator.pop(context); });
     }
-    // Re-force speaker every 2 seconds for first 10 sec (some phones turn it off)
-    for(int i=0; i<5; i++){ await Future.delayed(Duration(seconds: 2)); if(mounted) await Helper.setSpeakerphoneOn(speakerOn); }
+    for(int i=0; i<5; i++){ await Future.delayed(Duration(seconds: 2)); if(mounted && speakerOn) await Helper.setSpeakerphoneOn(true); }
   }
-  Future<void> _hangUp() async {
-    await Helper.setSpeakerphoneOn(false);
-    try { var doc = await FirebaseFirestore.instance.collection("calls").doc(widget.callId).get(); var data = doc.data(); String newStatus="ended"; if(data!=null && data["status"]=="calling" && widget.isCaller) newStatus="missed"; await FirebaseFirestore.instance.collection("calls").doc(widget.callId).update({"status": newStatus, "endTime": FieldValue.serverTimestamp()}); } catch(e){}
-    await _pc?.close(); await _localStream?.dispose(); if(mounted) Navigator.pop(context);
-  }
-  @override void dispose(){ _localRenderer.dispose(); _remoteRenderer.dispose(); _pc?.close(); _localStream?.dispose(); super.dispose(); }
+  Future<void> _hangUp() async { try { await Helper.setSpeakerphoneOn(false); } catch(e){} try { var doc = await FirebaseFirestore.instance.collection("calls").doc(widget.callId).get(); var data = doc.data(); String newStatus="ended"; if(data!=null && data["status"]=="calling" && widget.isCaller) newStatus="missed"; await FirebaseFirestore.instance.collection("calls").doc(widget.callId).update({"status": newStatus, "endTime": FieldValue.serverTimestamp()}); } catch(e){} await _pc?.close(); await _localStream?.dispose(); if(mounted) Navigator.pop(context); }
+  @override void dispose(){ try { _localRenderer.dispose(); } catch(e){} try { _remoteRenderer.dispose(); } catch(e){} try { _pc?.close(); } catch(e){} try { _localStream?.dispose(); } catch(e){} super.dispose(); }
   @override Widget build(BuildContext context) {
+    // ERROR SCREEN - never white page
+    if(errorMsg.isNotEmpty){
+      return Scaffold(backgroundColor: Colors.white, appBar: AppBar(title: Text("Call Error"), backgroundColor: Colors.red), body: Padding(padding: EdgeInsets.all(20), child: Column(children: [Icon(Icons.error, color: Colors.red, size: 60), SizedBox(height: 12), Text(errorMsg, style: TextStyle(color: Colors.black, fontSize: 15)), SizedBox(height: 20), ElevatedButton(onPressed: (){ setState(()=> errorMsg=""); _initSafe(); }, child: Text("TRY AGAIN")), SizedBox(height: 10), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: Colors.grey), onPressed: (){ Navigator.pop(context); }, child: Text("GO BACK"))])));
+    }
     return Scaffold(backgroundColor: Colors.black, appBar: AppBar(title: Text(status), backgroundColor: Colors.black),
       body: Stack(children: [
-        if(!audioOnly) Container(child: RTCVideoView(_remoteRenderer, mirror: false, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)),
+        if(!audioOnly) Container(color: Colors.black, child: RTCVideoView(_remoteRenderer, mirror: false, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)),
         if(audioOnly) Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircleAvatar(radius: 60, backgroundColor: Colors.deepPurple, child: Text(widget.otherName.isNotEmpty ? widget.otherName.substring(0,1).toUpperCase() : "?", style: TextStyle(fontSize: 50, color: Colors.white))), SizedBox(height: 16), Text("Audio Call - ${widget.otherName}", style: TextStyle(color: Colors.white, fontSize: 20)), SizedBox(height: 8), Text("SPEAK NOW - Can you hear me?", style: TextStyle(color: Colors.yellow, fontSize: 16))])),
         if(!audioOnly && !_remoteVideoGot) Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircularProgressIndicator(color: Colors.white), SizedBox(height: 16), Text(status, style: TextStyle(color: Colors.white), textAlign: TextAlign.center), SizedBox(height: 8), Text("SPEAK NOW - Voice should work even if video is loading", style: TextStyle(color: Colors.yellow, fontSize: 13))])),
         if(!audioOnly) Positioned(top: 10, right: 10, width: 120, height: 160, child: Container(decoration: BoxDecoration(border: Border.all(color: Colors.white)), child: RTCVideoView(_localRenderer, mirror: true))),
-        Positioned(bottom: 20, left: 0, right: 0, child: Column(children: [
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            FloatingActionButton(backgroundColor: micOn?Colors.white:Colors.red, mini: true, onPressed: (){ setState(()=> micOn=!micOn); _localStream?.getAudioTracks().forEach((t)=> t.enabled=micOn); }, child: Icon(micOn?Icons.mic:Icons.mic_off, size: 20)),
-            SizedBox(width: 8), FloatingActionButton(backgroundColor: speakerOn?Colors.white:Colors.red, mini: true, onPressed: () async { setState(()=> speakerOn=!speakerOn); await Helper.setSpeakerphoneOn(speakerOn); }, child: Icon(speakerOn?Icons.volume_up:Icons.volume_off, size: 20)),
-            SizedBox(width: 8), FloatingActionButton(backgroundColor: Colors.red, onPressed: _hangUp, child: Icon(Icons.call_end)),
-            SizedBox(width: 8), FloatingActionButton(backgroundColor: camOn?Colors.white:Colors.red, mini: true, onPressed: (){ setState(()=> camOn=!camOn); _localStream?.getVideoTracks().forEach((t)=> t.enabled=camOn); }, child: Icon(camOn?Icons.videocam:Icons.videocam_off, size: 20)),
-            SizedBox(width: 8), if(!audioOnly) FloatingActionButton(backgroundColor: Colors.white, mini: true, onPressed: () async { if(_localStream!.getVideoTracks().isNotEmpty) await Helper.switchCamera(_localStream!.getVideoTracks()[0]); }, child: Icon(Icons.switch_camera, size: 20)),
-          ]),
-          SizedBox(height: 8), Text("Mic WHITE = ON  •  Speaker WHITE = LOUD  •  If RED, tap it!", style: TextStyle(color: Colors.yellow, fontSize: 12, fontWeight: FontWeight.bold)),
-        ])),
+        Positioned(bottom: 20, left: 0, right: 0, child: Column(children: [Row(mainAxisAlignment: MainAxisAlignment.center, children: [FloatingActionButton(backgroundColor: micOn?Colors.white:Colors.red, mini: true, onPressed: (){ setState(()=> micOn=!micOn); _localStream?.getAudioTracks().forEach((t)=> t.enabled=micOn); }, child: Icon(micOn?Icons.mic:Icons.mic_off, size: 20)), SizedBox(width: 8), FloatingActionButton(backgroundColor: speakerOn?Colors.white:Colors.red, mini: true, onPressed: () async { setState(()=> speakerOn=!speakerOn); await Helper.setSpeakerphoneOn(speakerOn); }, child: Icon(speakerOn?Icons.volume_up:Icons.volume_off, size: 20)), SizedBox(width: 8), FloatingActionButton(backgroundColor: Colors.red, onPressed: _hangUp, child: Icon(Icons.call_end)), SizedBox(width: 8), FloatingActionButton(backgroundColor: camOn?Colors.white:Colors.red, mini: true, onPressed: (){ setState(()=> camOn=!camOn); _localStream?.getVideoTracks().forEach((t)=> t.enabled=camOn); }, child: Icon(camOn?Icons.videocam:Icons.videocam_off, size: 20)), SizedBox(width: 8), if(!audioOnly) FloatingActionButton(backgroundColor: Colors.white, mini: true, onPressed: () async { if(_localStream!=null && _localStream!.getVideoTracks().isNotEmpty) await Helper.switchCamera(_localStream!.getVideoTracks()[0]); }, child: Icon(Icons.switch_camera, size: 20)), ]), SizedBox(height: 8), Text("Mic WHITE = ON  •  Speaker WHITE = LOUD", style: TextStyle(color: Colors.yellow, fontSize: 12, fontWeight: FontWeight.bold)), ])),
       ]),
     );
   }
