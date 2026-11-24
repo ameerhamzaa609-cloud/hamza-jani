@@ -11,6 +11,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -34,11 +40,6 @@ jobs:
           p = pathlib.Path("android/settings.gradle")
           t = p.read_text()
           if "google-services" not in t:
-              t = t.replace(
-                  'id "com.android.application"',
-                  'id "com.android.application"'
-              )
-              # Add plugin in plugins block
               if 'id "com.google.gms.google-services"' not in t:
                   t = t.replace(
                       'id "org.jetbrains.kotlin.android"',
@@ -61,11 +62,6 @@ jobs:
               print("app/build.gradle FIXED")
           else:
               print("app/build.gradle already has google-services")
-
-          print("--- settings.gradle ---")
-          print(pathlib.Path("android/settings.gradle").read_text())
-          print("--- app/build.gradle ---")
-          print(pathlib.Path("android/app/build.gradle").read_text())
           PYEOF
 
       - name: Add Permissions
