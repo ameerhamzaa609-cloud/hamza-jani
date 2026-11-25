@@ -9,11 +9,34 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:image_picker/image_picker.dart' as img;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'firebase_options.dart';
 
 // ===== HAMZA JANI - CLOUDINARY =====
 const String cloudName = 'ajritqmx';
 const String uploadPreset = 'hamza_jani';
+
+// ===== RINGTONE PLAYER - HAMZA JANI SPECIAL B =====
+final AudioPlayer ringPlayer = AudioPlayer();
+Future<void> playHamzaRingtone() async {
+  try {
+    await ringPlayer.setReleaseMode(ReleaseMode.loop);
+    await ringPlayer.play(AssetSource('ringtone.mp3'));
+  } catch (e) {
+    debugPrint('Ringtone: $e');
+  }
+}
+Future<void> stopRingtone() async {
+  try { await ringPlayer.stop(); } catch (_) {}
+}
+
+// ===== NOTIFICATIONS =====
+final FlutterLocalNotificationsPlugin localNotif = FlutterLocalNotificationsPlugin();
+Future<void> _firebaseBgHandler(RemoteMessage msg) async {
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+}
 
 Future<String?> uploadToCloudinary(File file, String type) async {
   try {
@@ -39,6 +62,12 @@ Future<String?> uploadToCloudinary(File file, String type) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  FirebaseMessaging.onBackgroundMessage(_firebaseBgHandler);
+  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+  await localNotif.initialize(const InitializationSettings(android: androidInit));
+  // Create high importance channel for calls
+  const channel = AndroidNotificationChannel('hamza_calls', 'Hamza Jani Calls', description: 'Incoming calls', importance: Importance.max, playSound: true);
+  await localNotif.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(channel);
   runApp(const HamzaJaniApp());
 }
 
@@ -73,7 +102,7 @@ class AuthGate extends StatelessWidget {
   }
 }
 
-// ===== LOGIN / SIGNUP =====
+// ===== LOGIN =====
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -164,7 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 }
 
-// ===== HOME =====
+// ===== HOME + INCOMING CALL LISTENER =====
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
   @override
@@ -175,11 +204,75 @@ class _HomeScreenState extends State<HomeScreen> {
   int _tab = 0;
   final _searchCtrl = TextEditingController();
   String _search = '';
+  StreamSubscription? _incomingSub;
+  Set<String> _shownCalls = {};
 
   String get myName {
     final email = FirebaseAuth.instance.currentUser?.email ?? '';
     return email.replaceAll('@hamzajani.app', '');
   }
+
+  @override
+  void initState() {
+    super.initState();
+    _setupPush();
+    _listenIncoming();
+  }
+
+  Future<void> _setupPush() async {
+    try {
+      await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
+      String? token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await FirebaseFirestore.instance.collection('users').doc(myName).set({'fcmToken': token}, SetOptions(merge: true));
+      }
+      FirebaseMessaging.onMessage.listen((msg) {
+        // App open but in background tab - show incoming screen
+        if (msg.data['type'] == 'call') {
+          _showIncoming(msg.data['callId'] ?? '', msg.data['caller'] ?? 'Unknown', msg.data['isVideo'] == 'true');
+        }
+      });
+      FirebaseMessaging.onMessageOpenedApp.listen((msg) {
+        if (msg.data['type'] == 'call') {
+          _showIncoming(msg.data['callId'] ?? '', msg.data['caller'] ?? 'Unknown', msg.data['isVideo'] == 'true');
+        }
+      });
+    } catch (e) { debugPrint('Push setup: $e'); }
+  }
+
+  void _listenIncoming() {
+    // This works even when app is open in background / minimised
+    _incomingSub = FirebaseFirestore.instance.collection('calls').where('callee', isEqualTo: myName).where('status', isEqualTo: 'calling').snapshots().listen((snap) {
+      for (var doc in snap.docs) {
+        if (!_shownCalls.contains(doc.id)) {
+          _shownCalls.add(doc.id);
+          var d = doc.data();
+          _showIncoming(doc.id, d['caller'] ?? 'Unknown', d['isVideo'] == true);
+        }
+      }
+    });
+  }
+
+  Future<void> _showIncoming(String callId, String caller, bool isVideo) async {
+    if (!mounted) return;
+    await playHamzaRingtone();
+    // Show system notification too - so it rings when phone locked
+    await localNotif.show(
+      999,
+      'Hamza Jani - Incoming Call',
+      '$caller is calling you...',
+      const NotificationDetails(android: AndroidNotificationDetails('hamza_calls', 'Hamza Jani Calls', importance: Importance.max, priority: Priority.max, playSound: true, fullScreenIntent: true)),
+    );
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => IncomingCallDialog(callId: callId, caller: caller, myName: myName, isVideo: isVideo, onAnswered: () async { await stopRingtone(); }, onRejected: () async { await stopRingtone(); }),
+    );
+  }
+
+  @override
+  void dispose() { _incomingSub?.cancel(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
@@ -206,7 +299,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           Expanded(
-            child: _tab == 0 ? _usersList(isChat: false) : _tab == 1 ? _usersList(isChat: true) : _historyList(),
+            child: _tab == 0 ? _usersList() : _tab == 1 ? _usersList() : _historyList(),
           ),
         ],
       ),
@@ -223,7 +316,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _usersList({required bool isChat}) {
+  Widget _usersList() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('users').orderBy('username').snapshots(),
       builder: (c, s) {
@@ -234,7 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
           if (_search.isEmpty) return true;
           return u.contains(_search);
         }).toList();
-        if (docs.isEmpty) return const Center(child: Text('No user found.\nAsk friend to create account with same app.'));
+        if (docs.isEmpty) return const Center(child: Text('No user found.'));
         return ListView.builder(
           itemCount: docs.length,
           itemBuilder: (c, i) {
@@ -293,7 +386,53 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ===== CHAT WITH PHOTO / VIDEO / VOICE - CLOUDINARY =====
+// ===== INCOMING CALL DIALOG - WITH RINGTONE =====
+class IncomingCallDialog extends StatelessWidget {
+  final String callId; final String caller; final String myName; final bool isVideo;
+  final VoidCallback onAnswered; final VoidCallback onRejected;
+  const IncomingCallDialog({super.key, required this.callId, required this.caller, required this.myName, required this.isVideo, required this.onAnswered, required this.onRejected});
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.green.shade800,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('HAMZA JANI', style: TextStyle(color: Colors.white70, letterSpacing: 2)),
+            const SizedBox(height: 12),
+            CircleAvatar(radius: 55, backgroundColor: Colors.white, child: Text(caller.isNotEmpty ? caller[0].toUpperCase() : '?', style: const TextStyle(fontSize: 40, color: Colors.green))),
+            const SizedBox(height: 12),
+            Text(caller, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
+            Text(isVideo ? 'Video Call...' : 'Voice Call...', style: const TextStyle(color: Colors.white70)),
+            const SizedBox(height: 8),
+            const Text('🎵 Hamza Jani Ringtone', style: TextStyle(color: Colors.yellow)),
+            const SizedBox(height: 20),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: [
+                FloatingActionButton.large(backgroundColor: Colors.red, onPressed: () async {
+                  onRejected();
+                  await FirebaseFirestore.instance.collection('calls').doc(callId).set({'status': 'ended'}, SetOptions(merge: true));
+                  Navigator.pop(context);
+                }, child: const Icon(Icons.call_end, color: Colors.white)),
+                FloatingActionButton.large(backgroundColor: Colors.white, onPressed: () async {
+                  onAnswered();
+                  Navigator.pop(context);
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, myName: myName, otherName: caller, isCaller: false, isVideo: isVideo)));
+                }, child: const Icon(Icons.call, color: Colors.green)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ===== CHAT =====
 class ChatScreen extends StatefulWidget {
   final String myName; final String otherName;
   const ChatScreen({super.key, required this.myName, required this.otherName});
@@ -305,12 +444,10 @@ class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl = TextEditingController();
   final _picker = img.ImagePicker();
   bool _uploading = false;
-
   String get chatId {
     var a = [widget.myName, widget.otherName]..sort();
     return '${a[0]}_${a[1]}';
   }
-
   Future<void> _sendText() async {
     final t = _msgCtrl.text.trim();
     if (t.isEmpty) return;
@@ -319,7 +456,6 @@ class _ChatScreenState extends State<ChatScreen> {
       'from': widget.myName, 'to': widget.otherName, 'type': 'text', 'text': t, 'url': '', 'createdAt': FieldValue.serverTimestamp(),
     });
   }
-
   Future<void> _pickAndSend(String kind) async {
     img.XFile? f;
     if (kind == 'image') f = await _picker.pickImage(source: img.ImageSource.gallery, imageQuality: 70);
@@ -338,7 +474,6 @@ class _ChatScreenState extends State<ChatScreen> {
       'from': widget.myName, 'to': widget.otherName, 'type': kind, 'text': '', 'url': url, 'fileName': p.basename(f.path), 'createdAt': FieldValue.serverTimestamp(),
     });
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -369,8 +504,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           children: [
                             if (type == 'text') Text(m['text'] ?? ''),
                             if (type == 'image') ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(m['url'] ?? '', width: 200, errorBuilder: (_, __, ___) => const Text('Image'))),
-                            if (type == 'video') Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Text('🎥 Video: ${m['fileName'] ?? ''}\n${m['url'] ?? ''}', style: const TextStyle(fontSize: 12))),
-                            if (type == 'voice') Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)), child: Text('🎤 Voice: ${m['fileName'] ?? ''}\n${m['url'] ?? ''}', style: const TextStyle(fontSize: 12))),
+                            if (type == 'video') Text('🎥 Video: ${m['fileName'] ?? ''}\n${m['url'] ?? ''}', style: const TextStyle(fontSize: 12)),
+                            if (type == 'voice') Text('🎤 Voice: ${m['fileName'] ?? ''}\n${m['url'] ?? ''}', style: const TextStyle(fontSize: 12)),
                             const SizedBox(height: 4),
                             Text(mine ? 'You' : widget.otherName, style: const TextStyle(fontSize: 10, color: Colors.grey)),
                           ],
@@ -403,7 +538,7 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 }
 
-// ===== CALL SCREEN - WEBRTC =====
+// ===== CALL SCREEN =====
 class CallScreen extends StatefulWidget {
   final String callId; final String myName; final String otherName; final bool isCaller; final bool isVideo;
   const CallScreen({super.key, required this.callId, required this.myName, required this.otherName, required this.isCaller, required this.isVideo});
@@ -420,34 +555,24 @@ class _CallScreenState extends State<CallScreen> {
   StreamSubscription? _callSub; StreamSubscription? _candSub;
 
   @override
-  void initState() {
-    super.initState();
-    _init();
-  }
+  void initState() { super.initState(); _init(); }
 
   Future<void> _init() async {
     await _local.initialize(); await _remote.initialize();
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': widget.isVideo ? {'facingMode': 'user'} : false});
     _local.srcObject = _localStream;
-
-    _pc = await createPeerConnection({
-      'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]
-    });
-
+    _pc = await createPeerConnection({'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]});
     _pc!.onTrack = (e) { if (e.streams.isNotEmpty) setState(() => _remote.srcObject = e.streams[0]); };
     _pc!.onIceCandidate = (c) {
       FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').add({'from': widget.myName, 'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex});
     };
     _pc!.onConnectionState = (s) { if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) setState(() => _connected = true); };
-
     _localStream!.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
-
     if (widget.isCaller) {
       var offer = await _pc!.createOffer();
       await _pc!.setLocalDescription(offer);
       await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'offer': offer.toMap()}, SetOptions(merge: true));
     }
-
     _callSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).snapshots().listen((doc) async {
       if (!doc.exists) return;
       var d = doc.data()!;
@@ -462,7 +587,6 @@ class _CallScreenState extends State<CallScreen> {
         await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
       }
     });
-
     _candSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').snapshots().listen((snap) {
       for (var doc in snap.docChanges) {
         if (doc.type == DocumentChangeType.added) {
@@ -479,33 +603,28 @@ class _CallScreenState extends State<CallScreen> {
     _localStream?.getAudioTracks().forEach((t) => t.enabled = _muted);
     setState(() => _muted = !_muted);
   }
-
   Future<void> _toggleSpeaker() async {
     _localStream?.getAudioTracks().forEach((t) => t.enableSpeakerphone(!_speaker));
     setState(() => _speaker = !_speaker);
   }
-
   Future<void> _switchCamera() async {
     if (_localStream != null) {
       var track = _localStream!.getVideoTracks().firstOrNull;
       if (track != null) { await Helper.switchCamera(track); setState(() => _front = !_front); }
     }
   }
-
   Future<void> _endCall() async {
+    await stopRingtone();
     await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'status': 'ended'}, SetOptions(merge: true));
     _endLocal();
   }
-
   void _endLocal() async {
     await _pc?.close(); await _localStream?.dispose(); _local.dispose(); _remote.dispose();
     _callSub?.cancel(); _candSub?.cancel();
     if (mounted) Navigator.pop(context);
   }
-
   @override
   void dispose() { _pc?.close(); _local.dispose(); _remote.dispose(); super.dispose(); }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
