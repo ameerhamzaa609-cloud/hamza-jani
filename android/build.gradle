@@ -1,8 +1,8 @@
 plugins {
-    id "com.android.application"
-    id "kotlin-android"
+    id "com.android.application" apply false
+    id "kotlin-android" apply false
+   id "com.google.gms.google-services" apply false
    
-    id "com.google.gms.google-services"
 }
 
 
