@@ -1,4 +1,4 @@
-
+pluginManagement {
     def flutterSdkPath = System.getenv("FLUTTER_ROOT") 
     if (flutterSdkPath == null) {
         def properties = new Properties()
@@ -19,7 +19,7 @@
         mavenCentral()
         gradlePluginPortal()
     }
-
+}
 
 plugins {
     id("dev.flutter.flutter-plugin-loader") version "1.0.0"
