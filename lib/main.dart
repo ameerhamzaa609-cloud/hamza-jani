@@ -41,7 +41,7 @@ Future<void> _firebaseBgHandler(RemoteMessage msg) async {
 Future<String?> uploadToCloudinary(File file, String type) async {
   try {
     final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/$type/upload');
-  
+  final req = http.MultipartRequest('POST', url);
     req.fields['upload_preset'] = uploadPreset;
     req.files.add(await http.MultipartFile.fromPath('file', file.path));
     var streamed = await req.send();
