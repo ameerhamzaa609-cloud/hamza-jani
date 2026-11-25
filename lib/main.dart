@@ -21,9 +21,9 @@ Future<String?> uploadToCloudinary(File file, String type) async {
     var req = http.MultipartRequest('POST', url);
     req.fields['upload_preset'] = uploadPreset;
     req.files.add(await http.MultipartFile.fromPath('file', file.path));
-    var res = await req.send();
-    var body = await res.response.stream.bytesToString();
-    if (res.statusCode == 200) {
+    var streamed = await req.send();
+    var body = await streamed.stream.bytesToString();
+    if (streamed.statusCode == 200) {
       var j = jsonDecode(body);
       return j['secure_url'] as String?;
     } else {
