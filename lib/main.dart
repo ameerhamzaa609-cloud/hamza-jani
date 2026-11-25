@@ -37,7 +37,7 @@ final FlutterLocalNotificationsPlugin localNotif = FlutterLocalNotificationsPlug
 Future<void> _firebaseBgHandler(RemoteMessage msg) async {
   await Firebase.initializeApp();
 }
-}
+
 Future<String?> uploadToCloudinary(File file, String type) async {
   try {
     final url = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/$type/upload');
