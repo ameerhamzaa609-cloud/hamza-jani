@@ -1,4 +1,4 @@
-name: Build Hamza Jani
+name: Build APK
 
 on:
   push:
@@ -8,87 +8,31 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
 
-      - name: Setup Java 17
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
           java-version: '17'
+          distribution: 'temurin'
 
-      - name: Setup Flutter
+      - name: Install Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.22.0'
+          flutter-version: '3.32.0'
           channel: 'stable'
+          cache: true
 
-      - name: Create Project
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Copy google-services.json
         run: |
-          flutter create --project-name hamza_jani --org com.example --platforms android .
           cp google-services.json android/app/google-services.json
           ls -lh android/app/google-services.json
-
-      - name: Generate Firebase Options
-        run: |
-          python3 << 'PYEOF'
-          import json, pathlib
-          data = json.loads(pathlib.Path("google-services.json").read_text())
-          client = data["client"][0]
-          project = data["project_info"]
-          api_key = client["api_key"][0]["current_key"]
-          app_id = client["client_info"]["mobilesdk_app_id"]
-          project_id = project["project_id"]
-          storage = project.get("storage_bucket","")
-          project_number = project.get("project_number","")
-          code = f'''
-          import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
-          class DefaultFirebaseOptions {{
-            static FirebaseOptions get currentPlatform => android;
-            static const FirebaseOptions android = FirebaseOptions(
-              apiKey: '{api_key}',
-              appId: '{app_id}',
-              messagingSenderId: '{project_number}',
-              projectId: '{project_id}',
-              storageBucket: '{storage}',
-            );
-          }}
-          '''
-          pathlib.Path("lib/firebase_options.dart").write_text(code)
-          print("Generated firebase_options.dart")
-          PYEOF
-
-      - name: Setup Firebase Plugins
-        run: |
-          python3 << 'PYEOF'
-          import pathlib
-          p = pathlib.Path("android/settings.gradle")
-          t = p.read_text()
-          if "google-services" not in t:
-              old = 'id "org.jetbrains.kotlin.android" version "1.7.10" apply false'
-              new = old + '\n    id "com.google.gms.google-services" version "4.4.2" apply false'
-              if old in t:
-                  t = t.replace(old, new)
-                  p.write_text(t)
-                  print("settings.gradle FIXED")
-          p2 = pathlib.Path("android/app/build.gradle")
-          t2 = p2.read_text()
-          if "google-services" not in t2:
-              t2 = t2.replace('id "dev.flutter.flutter-gradle-plugin"', 'id "dev.flutter.flutter-gradle-plugin"\n    id "com.google.gms.google-services"')
-              p2.write_text(t2)
-              print("app/build.gradle FIXED")
-          PYEOF
-
-      - name: Add Permissions
-        run: |
-          python3 << 'PYEOF'
-          import pathlib
-          p = pathlib.Path("android/app/src/main/AndroidManifest.xml")
-          t = p.read_text()
-          if "RECORD_AUDIO" not in t:
-              t = t.replace("<application", '<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.CAMERA" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.BLUETOOTH" />\n    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />\n    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />\n    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />\n    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />\n    <application')
-              p.write_text(t)
-          PYEOF
 
       - name: Build APK
         run: flutter build apk --release
