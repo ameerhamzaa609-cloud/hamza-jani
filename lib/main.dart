@@ -61,7 +61,7 @@ Future<String?> uploadToCloudinary(File file, String type) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+ await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseBgHandler);
   const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
   await localNotif.initialize(const InitializationSettings(android: androidInit));
