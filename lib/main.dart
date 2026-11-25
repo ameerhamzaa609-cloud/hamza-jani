@@ -6,7 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:image_picker/image_picker.dart' as img;
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'firebase_options.dart';
@@ -303,7 +303,7 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   final _msgCtrl = TextEditingController();
-  final _picker = ImagePicker();
+  final _picker = img.ImagePicker();
   bool _uploading = false;
 
   String get chatId {
@@ -321,6 +321,209 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _pickAndSend(String kind) async {
-    XFile? f;
-    if (kind == 'image') f = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 70);
-    if (kind == 'video') f = await _picker.pickVideo(source: Image
+    img.XFile? f;
+    if (kind == 'image') f = await _picker.pickImage(source: img.ImageSource.gallery, imageQuality: 70);
+    if (kind == 'video') f = await _picker.pickVideo(source: img.ImageSource.gallery);
+    if (kind == 'voice') f = await _picker.pickVideo(source: img.ImageSource.gallery);
+    if (f == null) return;
+    setState(() => _uploading = true);
+    String type = kind == 'video' ? 'video' : (kind == 'voice' ? 'video' : 'image');
+    final url = await uploadToCloudinary(File(f.path), type);
+    setState(() => _uploading = false);
+    if (url == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed - try again')));
+      return;
+    }
+    await FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').add({
+      'from': widget.myName, 'to': widget.otherName, 'type': kind, 'text': '', 'url': url, 'fileName': p.basename(f.path), 'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.otherName), backgroundColor: Colors.green, foregroundColor: Colors.white),
+      body: Column(
+        children: [
+          if (_uploading) const LinearProgressIndicator(color: Colors.green),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').orderBy('createdAt', descending: false).snapshots(),
+              builder: (c, s) {
+                if (!s.hasData) return const Center(child: CircularProgressIndicator());
+                var msgs = s.data!.docs;
+                return ListView.builder(
+                  itemCount: msgs.length,
+                  itemBuilder: (c, i) {
+                    final m = msgs[i];
+                    final mine = m['from'] == widget.myName;
+                    final type = m['type'] ?? 'text';
+                    return Align(
+                      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(color: mine ? Colors.green.shade100 : Colors.grey.shade200, borderRadius: BorderRadius.circular(14)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (type == 'text') Text(m['text'] ?? ''),
+                            if (type == 'image') ClipRRect(borderRadius: BorderRadius.circular(10), child: Image.network(m['url'] ?? '', width: 200, errorBuilder: (_, __, ___) => const Text('Image'))),
+                            if (type == 'video') Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8)), child: Text('🎥 Video: ${m['fileName'] ?? ''}\n${m['url'] ?? ''}', style: const TextStyle(fontSize: 12))),
+                            if (type == 'voice') Container(padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: Colors.orange.shade100, borderRadius: BorderRadius.circular(8)), child: Text('🎤 Voice: ${m['fileName'] ?? ''}\n${m['url'] ?? ''}', style: const TextStyle(fontSize: 12))),
+                            const SizedBox(height: 4),
+                            Text(mine ? 'You' : widget.otherName, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(8),
+              child: Row(
+                children: [
+                  IconButton(icon: const Icon(Icons.photo, color: Colors.green), onPressed: () => _pickAndSend('image')),
+                  IconButton(icon: const Icon(Icons.videocam, color: Colors.blue), onPressed: () => _pickAndSend('video')),
+                  IconButton(icon: const Icon(Icons.mic, color: Colors.orange), onPressed: () => _pickAndSend('voice')),
+                  Expanded(child: TextField(controller: _msgCtrl, decoration: InputDecoration(hintText: 'Message...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(30))))),
+                  const SizedBox(width: 6),
+                  CircleAvatar(backgroundColor: Colors.green, child: IconButton(icon: const Icon(Icons.send, color: Colors.white), onPressed: _sendText)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ===== CALL SCREEN - WEBRTC =====
+class CallScreen extends StatefulWidget {
+  final String callId; final String myName; final String otherName; final bool isCaller; final bool isVideo;
+  const CallScreen({super.key, required this.callId, required this.myName, required this.otherName, required this.isCaller, required this.isVideo});
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  RTCPeerConnection? _pc;
+  final _local = RTCVideoRenderer();
+  final _remote = RTCVideoRenderer();
+  MediaStream? _localStream;
+  bool _muted = false; bool _speaker = false; bool _connected = false; bool _front = true;
+  StreamSubscription? _callSub; StreamSubscription? _candSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await _local.initialize(); await _remote.initialize();
+    _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': widget.isVideo ? {'facingMode': 'user'} : false});
+    _local.srcObject = _localStream;
+
+    _pc = await createPeerConnection({
+      'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]
+    });
+
+    _pc!.onTrack = (e) { if (e.streams.isNotEmpty) setState(() => _remote.srcObject = e.streams[0]); };
+    _pc!.onIceCandidate = (c) {
+      FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').add({'from': widget.myName, 'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex});
+    };
+    _pc!.onConnectionState = (s) { if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) setState(() => _connected = true); };
+
+    _localStream!.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
+
+    if (widget.isCaller) {
+      var offer = await _pc!.createOffer();
+      await _pc!.setLocalDescription(offer);
+      await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'offer': offer.toMap()}, SetOptions(merge: true));
+    }
+
+    _callSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).snapshots().listen((doc) async {
+      if (!doc.exists) return;
+      var d = doc.data()!;
+      if (d['status'] == 'ended') { _endLocal(); return; }
+      if (!widget.isCaller && d['offer'] != null && _pc!.getRemoteDescription() == null) {
+        await _pc!.setRemoteDescription(RTCSessionDescription(d['offer']['sdp'], d['offer']['type']));
+        var ans = await _pc!.createAnswer();
+        await _pc!.setLocalDescription(ans);
+        await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'answer': ans.toMap(), 'status': 'connected'}, SetOptions(merge: true));
+      }
+      if (widget.isCaller && d['answer'] != null && _pc!.getRemoteDescription() == null) {
+        await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
+      }
+    });
+
+    _candSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').snapshots().listen((snap) {
+      for (var doc in snap.docChanges) {
+        if (doc.type == DocumentChangeType.added) {
+          var cd = doc.doc.data()!;
+          if (cd['from'] != widget.myName) {
+            _pc!.addCandidate(RTCIceCandidate(cd['candidate'], cd['sdpMid'], cd['sdpMLineIndex']));
+          }
+        }
+      }
+    });
+  }
+
+  Future<void> _toggleMute() async {
+    _localStream?.getAudioTracks().forEach((t) => t.enabled = _muted);
+    setState(() => _muted = !_muted);
+  }
+
+  Future<void> _toggleSpeaker() async {
+    _localStream?.getAudioTracks().forEach((t) => t.enableSpeakerphone(!_speaker));
+    setState(() => _speaker = !_speaker);
+  }
+
+  Future<void> _switchCamera() async {
+    if (_localStream != null) {
+      var track = _localStream!.getVideoTracks().firstOrNull;
+      if (track != null) { await Helper.switchCamera(track); setState(() => _front = !_front); }
+    }
+  }
+
+  Future<void> _endCall() async {
+    await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'status': 'ended'}, SetOptions(merge: true));
+    _endLocal();
+  }
+
+  void _endLocal() async {
+    await _pc?.close(); await _localStream?.dispose(); _local.dispose(); _remote.dispose();
+    _callSub?.cancel(); _candSub?.cancel();
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  void dispose() { _pc?.close(); _local.dispose(); _remote.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(child: widget.isVideo ? RTCVideoView(_remote, mirror: true) : Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircleAvatar(radius: 60, child: Text(widget.otherName[0].toUpperCase(), style: const TextStyle(fontSize: 40))), const SizedBox(height: 16), Text(widget.otherName, style: const TextStyle(color: Colors.white, fontSize: 24)), Text(_connected ? 'Connected' : 'Calling...', style: const TextStyle(color: Colors.white70))]))),
+            if (widget.isVideo) Positioned(top: 16, right: 16, width: 120, height: 170, child: ClipRRect(borderRadius: BorderRadius.circular(12), child: RTCVideoView(_local, mirror: true))),
+            Positioned(bottom: 30, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              FloatingActionButton(backgroundColor: _muted ? Colors.white : Colors.grey.shade800, onPressed: _toggleMute, child: Icon(_muted ? Icons.mic_off : Icons.mic, color: _muted ? Colors.black : Colors.white)),
+              FloatingActionButton(backgroundColor: _speaker ? Colors.white : Colors.grey.shade800, onPressed: _toggleSpeaker, child: Icon(Icons.volume_up, color: _speaker ? Colors.black : Colors.white)),
+              if (widget.isVideo) FloatingActionButton(backgroundColor: Colors.grey.shade800, onPressed: _switchCamera, child: const Icon(Icons.switch_camera, color: Colors.white)),
+              FloatingActionButton(backgroundColor: Colors.red, onPressed: _endCall, child: const Icon(Icons.call_end, color: Colors.white)),
+            ])),
+          ],
+        ),
+      ),
+    );
+  }
+}
