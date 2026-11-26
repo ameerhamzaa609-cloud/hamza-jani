@@ -27,7 +27,7 @@ jobs:
       - name: Fix AndroidX
         run: |
           printf "android.useAndroidX=true\nandroid.enableJetifier=true\norg.gradle.jvmargs=-Xmx4g\n" > android/gradle.properties
-      - run: cd android && ./gradlew assembleRelease
+      - run: flutter build apk --release
       - run: find . -name "*.apk"
 
       - uses: actions/upload-artifact@v4
