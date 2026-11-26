@@ -1,17 +1,22 @@
 
-name: Build APK
+name: Build MyFirstApp Android APK
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Android Release APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -23,39 +28,46 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.5'
           channel: stable
-          cache: false
+          cache: true
 
-      - name: Flutter doctor
+      - name: Check Flutter
         run: flutter doctor -v
 
-      - name: Get dependencies
+      - name: Install Flutter Dependencies
         run: flutter pub get
 
-      - name: Configure AndroidX
-        run: |
-          printf "android.useAndroidX=true\nandroid.enableJetifier=true\norg.gradle.jvmargs=-Xmx4g\n" > android/gradle.properties
+      - name: Prepare Gradle
+        run: chmod +x android/gradlew
 
-      - name: Build release APK
-        run: flutter build apk --release --verbose
-
-      - name: Diagnose APK output
-        if: always()
+      - name: Build Release APK
         run: |
-          echo "Searching entire project for APK files"
-          find . -type f -name "*.apk" -print
-          echo "Checking Flutter output"
-          ls -R build/app/outputs || true
-          echo "Checking Android output"
-          ls -R android/app/build/outputs || true
+          cd android
+          ./gradlew :app:assembleRelease --stacktrace
+
+      - name: Find and Prepare APK
+        run: |
+          mkdir -p dist
+
+          APK=$(find android/app/build/outputs/apk/release \
+            -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: No APK file was generated."
+            echo "Searching all project folders:"
+            find . -type f -name "*.apk"
+            exit 1
+          fi
+
+          echo "APK found: $APK"
+          cp "$APK" dist/MyFirstApp-release.apk
+
+          ls -lh dist/
 
       - name: Upload APK
-        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: hamza-jani-apk
-          path: |
-            build/app/outputs/**/*.apk
-            android/app/build/outputs/**/*.apk
-          if-no-files-found: warn
+          name: MyFirstApp-Android-APK
+          path: dist/MyFirstApp-release.apk
+          if-no-files-found: error
+          retention-days: 14
