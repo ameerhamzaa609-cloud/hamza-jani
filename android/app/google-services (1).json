@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "252284362751",
+    "project_id": "hamza-jani-aa4e9",
+    "storage_bucket": "hamza-jani-aa4e9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:252284362751:android:d9e17bbbfd7304840951ca",
+        "android_client_info": {
+          "package_name": "com.example.hamza_jani"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAI1hRXxBjHMpl9h3K66veGEt86px0XwBQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
