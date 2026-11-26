@@ -12,14 +12,13 @@ permissions:
 
 jobs:
   build:
-    name: Build Android Release APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -31,38 +30,44 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Check Flutter
-        run: flutter doctor -v
-
-      - name: Install Flutter Dependencies
-        run: flutter pub get
-
-      - name: Prepare Gradle
-        run: chmod +x android/gradlew
-
-      - name: Build Release APK
+      - name: Check Project Structure
         run: |
-          cd android
-          ./gradlew :app:assembleRelease --stacktrace
+          echo "Current directory:"
+          pwd
+          echo "Project files:"
+          ls -la
+          echo "Searching for pubspec.yaml:"
+          find . -maxdepth 4 -name pubspec.yaml
 
-      - name: Find and Prepare APK
+      - name: Prepare Flutter Project
         run: |
-          mkdir -p dist
-
-          APK=$(find android/app/build/outputs/apk/release \
-            -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: No APK file was generated."
-            echo "Searching all project folders:"
-            find . -type f -name "*.apk"
+          if [ ! -f pubspec.yaml ]; then
+            echo "ERROR: pubspec.yaml not found in repository root."
             exit 1
           fi
 
-          echo "APK found: $APK"
-          cp "$APK" dist/MyFirstApp-release.apk
+          flutter create --platforms=android .
 
-          ls -lh dist/
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      - name: Find APK
+        run: |
+          echo "Searching for APK..."
+          find . -type f -name "*.apk"
+
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found."
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$APK" dist/MyFirstApp-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
