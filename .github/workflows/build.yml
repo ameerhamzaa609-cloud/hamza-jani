@@ -28,7 +28,7 @@ jobs:
         run: |
           printf "android.useAndroidX=true\nandroid.enableJetifier=true\norg.gradle.jvmargs=-Xmx4g\n" > android/gradle.properties
       - run: flutter build apk --release --verbose
-      - run: find android/app/build -name "*.apk""
+      - run: find . -name "*.apk"
 
       - uses: actions/upload-artifact@v4
         with:
