@@ -35,5 +35,7 @@ flutter {
     source = "../.."
 }
 
-dependencies {}
-implementation "com.android.tools:desugar_jdk_libs:2.0.4"
+dependencies {
+    implementation "com.android.tools:desugar_jdk_libs:2.0.4"
+}
+
