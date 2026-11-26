@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "com.example.hamza_jani"
-    compileSdk = 34
+    compileSdk = 35
     ndkVersion = "25.1.8937393"
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -20,7 +20,7 @@ android {
     defaultConfig {
         applicationId = "com.example.hamza_jani"
         minSdk = 23
-        targetSdk = 34
+        targetSdk = 35
         versionCode 1
         versionName "1.0.0"
     }
