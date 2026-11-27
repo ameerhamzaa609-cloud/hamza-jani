@@ -242,38 +242,18 @@ class HamzaJaniLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(width: size, height: size, child: CustomPaint(painter: _HamzaJaniLogoPainter()));
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Image.asset(
+        'assets/hamza_jani_logo.jpg',
+        width: size,
+        height: size,
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.high,
+      ),
+    );
   }
-}
-
-class _HamzaJaniLogoPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.save();
-    canvas.scale(size.width / 100);
-    final green = Paint()..color = const Color(0xFF0B2B22);
-    final gold = Paint()
-      ..color = const Color(0xFFD8B35B)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 5
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawCircle(const Offset(50, 50), 47, green);
-    canvas.drawCircle(const Offset(50, 50), 43, gold);
-    final h = Path()
-      ..moveTo(29, 29)..lineTo(29, 70)
-      ..moveTo(29, 49)..lineTo(51, 49)
-      ..moveTo(51, 29)..lineTo(51, 70);
-    canvas.drawPath(h, gold);
-    final j = Path()
-      ..moveTo(72, 29)..lineTo(72, 59)
-      ..cubicTo(72, 75, 57, 78, 48, 67);
-    canvas.drawPath(j, gold);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 // ===== AUTH GATE =====
