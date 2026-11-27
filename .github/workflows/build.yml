@@ -57,26 +57,26 @@ jobs:
           import re
 
           cache = Path.home() / ".pub-cache"
+          gradle_files = sorted(set(cache.glob("**/android/build.gradle")) | set(cache.glob("**/android/build.gradle.kts")))
           changed = []
-          gradle_files = list(cache.glob("**/android/build.gradle")) + list(cache.glob("**/android/build.gradle.kts"))
           for gradle_file in gradle_files:
               original = gradle_file.read_text()
               updated = re.sub(
-              r'(?m)^(\\s*)compileSdkVersion\\b[^\\n]*$',
-              r'\\g<1>compileSdkVersion 36',
-              original
-          )
-          updated = re.sub(
-              r'(?m)^(\\s*)compileSdk(\\s*=\\s*|\\s+)[^\\n]+$',
-              lambda match: match.group(1) + 'compileSdk' + match.group(2) + '36',
-              updated
-          )
-          updated = re.sub(
-              r'(?m)^(\\s*)compileSdkVersion\\s*\\([^\\n]*\\)\\s*$',
-              r'\\g<1>compileSdkVersion(36)',
-              updated
-          )
-          if updated != original:
+                  r'(?m)^(\s*)compileSdkVersion\b[^\n]*$',
+                  r'\g<1>compileSdkVersion 36',
+                  original,
+              )
+              updated = re.sub(
+                  r'(?m)^(\s*)compileSdk\s*(?:=\s*)?\d+\s*$',
+                  lambda m: m.group(1) + 'compileSdk' + (' = ' if '=' in m.group(0) else ' ') + '36',
+                  updated,
+              )
+              updated = re.sub(
+                  r'(?m)^(\s*)compileSdkVersion\s*\([^\n]*\)\s*$',
+                  r'\g<1>compileSdkVersion(36)',
+                  updated,
+              )
+              if updated != original:
                   gradle_file.write_text(updated)
                   changed.append(str(gradle_file))
           print(f"Updated {len(changed)} Android plugin Gradle files to compile SDK 36.")
