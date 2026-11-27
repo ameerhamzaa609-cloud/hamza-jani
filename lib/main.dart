@@ -512,7 +512,27 @@ class _HomeScreenState extends State<HomeScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('calls').where('participants', arrayContains: myName).orderBy('createdAt', descending: true).limit(50).snapshots(),
       builder: (c, s) {
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
+        if (s.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.history, size: 44, color: Colors.grey),
+                  const SizedBox(height: 12),
+                  const Text('Call history could not be loaded.', textAlign: TextAlign.center, style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  Text('${s.error}', textAlign: TextAlign.center, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ],
+              ),
+            ),
+          );
+        }
+        if (s.connectionState == ConnectionState.waiting && !s.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (!s.hasData) return const Center(child: Text('No call history yet'));
         if (s.data!.docs.isEmpty) return const Center(child: Text('No call history yet'));
         return ListView.builder(
           itemCount: s.data!.docs.length,
