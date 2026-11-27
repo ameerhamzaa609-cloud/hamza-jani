@@ -295,14 +295,17 @@ class _LoginScreenState extends State<LoginScreen> {
     final phone = user.phoneNumber;
     if (phone == null || phone.isEmpty) throw StateError('Your verified phone number was not returned by Firebase.');
     final phoneKey = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    await FirebaseFirestore.instance.collection('users').doc(phone).set({
+    final userRef = FirebaseFirestore.instance.collection('users').doc(phone);
+    final existing = await userRef.get();
+    final existingData = existing.data() ?? <String, dynamic>{};
+    await userRef.set({
       'username': phone,
       'phoneNumber': phone,
       'phoneSearch': phoneKey,
       'uid': user.uid,
-      'displayName': phone,
-      'discoverableByPhone': true,
-      'createdAt': FieldValue.serverTimestamp(),
+      'displayName': (existingData['displayName'] ?? phone).toString(),
+      'discoverableByPhone': existingData['discoverableByPhone'] != false,
+      if (!existing.exists) 'createdAt': FieldValue.serverTimestamp(),
       'online': true,
     }, SetOptions(merge: true));
   }
@@ -1639,7 +1642,9 @@ class _CallScreenState extends State<CallScreen> {
           leading: const Icon(Icons.phone),
           title: const Text('Verified phone number'),
           subtitle: Text(_phone ?? 'Not added yet'),
-          trailing: TextButton(onPressed: _addPhone, child: Text(_phone == null ? 'ADD' : 'CHANGE')),
+          trailing: _phone == null
+              ? TextButton(onPressed: _addPhone, child: const Text('ADD'))
+              : const Text('VERIFIED', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
         ),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
