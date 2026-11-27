@@ -475,7 +475,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('users').orderBy('username').snapshots(),
       builder: (c, s) {
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
+        if (s.hasError) return Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('Cannot load users from Firebase: ${s.error}', textAlign: TextAlign.center)));
+        if (s.connectionState == ConnectionState.waiting && !s.hasData) return const Center(child: CircularProgressIndicator());
         var docs = s.data!.docs.where((d) {
           final u = (d['username'] ?? '').toString().toLowerCase();
           if (u == myName) return false;
@@ -640,7 +641,8 @@ class _ChatScreenState extends State<ChatScreen> {
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').orderBy('createdAt', descending: false).snapshots(),
               builder: (c, s) {
-                if (!s.hasData) return const Center(child: CircularProgressIndicator());
+                if (s.hasError) return Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('Cannot load messages from Firebase: ${s.error}', textAlign: TextAlign.center)));
+                if (s.connectionState == ConnectionState.waiting && !s.hasData) return const Center(child: CircularProgressIndicator());
                 var msgs = s.data!.docs;
                 return ListView.builder(
                   itemCount: msgs.length,
@@ -708,20 +710,49 @@ class _CallScreenState extends State<CallScreen> {
   MediaStream? _localStream;
   bool _muted = false; bool _speaker = false; bool _connected = false; bool _front = true;
   StreamSubscription? _callSub; StreamSubscription? _candSub;
+  Timer? _callTimeout;
+  bool _remoteDescriptionReady = false;
+  bool _ending = false;
+  final List<RTCIceCandidate> _pendingCandidates = [];
 
   @override
-  void initState() { super.initState(); _init(); }
+  void initState() {
+    super.initState();
+    _callTimeout = Timer(const Duration(seconds: 45), () async {
+      if (!_connected && mounted) {
+        try {
+          await FirebaseFirestore.instance.collection('calls').doc(widget.callId)
+              .set({'status': 'missed', 'endedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+        } catch (e) { debugPrint('Call timeout update failed: $e'); }
+        _endLocal();
+      }
+    });
+    _init();
+  }
 
   Future<void> _init() async {
     await _local.initialize(); await _remote.initialize();
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': widget.isVideo ? {'facingMode': 'user'} : false});
     _local.srcObject = _localStream;
     _pc = await createPeerConnection({'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]});
-    _pc!.onTrack = (e) { if (e.streams.isNotEmpty) setState(() => _remote.srcObject = e.streams[0]); };
-    _pc!.onIceCandidate = (c) {
-      FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').add({'from': widget.myName, 'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex});
+    _pc!.onTrack = (e) { if (e.streams.isNotEmpty && mounted) setState(() => _remote.srcObject = e.streams[0]); };
+    _pc!.onIceCandidate = (c) async {
+      if (c.candidate == null) return;
+      try {
+        await FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').add({
+          'from': widget.myName, 'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex,
+        });
+      } catch (e) { debugPrint('Saving ICE candidate failed: $e'); }
     };
-    _pc!.onConnectionState = (s) { if (s == RTCPeerConnectionState.RTCPeerConnectionStateConnected) setState(() => _connected = true); };
+    _pc!.onConnectionState = (state) {
+      if (!mounted) return;
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _callTimeout?.cancel();
+        setState(() => _connected = true);
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        _endCall();
+      }
+    };
     _localStream!.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
     if (widget.isCaller) {
       var offer = await _pc!.createOffer();
@@ -734,24 +765,42 @@ class _CallScreenState extends State<CallScreen> {
       if (d['status'] == 'ended') { _endLocal(); return; }
       if (!widget.isCaller && d['offer'] != null && _pc!.getRemoteDescription() == null) {
         await _pc!.setRemoteDescription(RTCSessionDescription(d['offer']['sdp'], d['offer']['type']));
+        _remoteDescriptionReady = true;
+        await _flushPendingCandidates();
         var ans = await _pc!.createAnswer();
         await _pc!.setLocalDescription(ans);
         await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'answer': ans.toMap(), 'status': 'connected'}, SetOptions(merge: true));
       }
       if (widget.isCaller && d['answer'] != null && _pc!.getRemoteDescription() == null) {
         await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
+        _remoteDescriptionReady = true;
+        await _flushPendingCandidates();
       }
-    });
+    }, onError: (e) { debugPrint('Call signaling listener failed: $e'); if (mounted) _endCall(); });
     _candSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').snapshots().listen((snap) {
       for (var doc in snap.docChanges) {
         if (doc.type == DocumentChangeType.added) {
           var cd = doc.doc.data()!;
-          if (cd['from'] != widget.myName) {
-            _pc!.addCandidate(RTCIceCandidate(cd['candidate'], cd['sdpMid'], cd['sdpMLineIndex']));
+          if (cd['from'] != widget.myName && cd['candidate'] != null) {
+            final candidate = RTCIceCandidate(cd['candidate'], cd['sdpMid'], cd['sdpMLineIndex']);
+            if (_remoteDescriptionReady) {
+              _pc!.addCandidate(candidate).catchError((e) => debugPrint('Adding ICE candidate failed: $e'));
+            } else {
+              _pendingCandidates.add(candidate);
+            }
           }
         }
       }
-    });
+    }, onError: (e) { debugPrint('ICE candidate listener failed: $e'); });
+  }
+
+  Future<void> _flushPendingCandidates() async {
+    final pending = List<RTCIceCandidate>.from(_pendingCandidates);
+    _pendingCandidates.clear();
+    for (final candidate in pending) {
+      try { await _pc?.addCandidate(candidate); }
+      catch (e) { debugPrint('Queued ICE candidate failed: $e'); }
+    }
   }
 
   Future<void> _toggleMute() async {
@@ -774,12 +823,21 @@ class _CallScreenState extends State<CallScreen> {
     _endLocal();
   }
   void _endLocal() async {
-    await _pc?.close(); await _localStream?.dispose(); _local.dispose(); _remote.dispose();
-    _callSub?.cancel(); _candSub?.cancel();
-    if (mounted) Navigator.pop(context);
+    if (_ending) return;
+    _ending = true;
+    _callTimeout?.cancel();
+    await _callSub?.cancel(); await _candSub?.cancel();
+    await _pc?.close(); await _localStream?.dispose();
+    _local.dispose(); _remote.dispose();
+    if (mounted && Navigator.of(context).canPop()) Navigator.pop(context);
   }
   @override
-  void dispose() { _pc?.close(); _local.dispose(); _remote.dispose(); super.dispose(); }
+  void dispose() {
+    _callTimeout?.cancel();
+    _callSub?.cancel(); _candSub?.cancel();
+    _pc?.close(); _localStream?.dispose(); _local.dispose(); _remote.dispose();
+    super.dispose();
+  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
