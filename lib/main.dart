@@ -626,29 +626,33 @@ class _HomeScreenState extends State<HomeScreen> {
           }),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(10),
-            child: TextField(
-              controller: _searchCtrl,
-              onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
-              decoration: InputDecoration(hintText: 'Search user by name... e.g. hamza2', prefixIcon: const Icon(Icons.search), border: OutlineInputBorder(borderRadius: BorderRadius.circular(30))),
+      body: _tab == 2
+          ? ProfileScreen(myName: myName)
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
+                    decoration: InputDecoration(
+                      hintText: 'Search by name or phone number',
+                      prefixIcon: const Icon(Icons.search),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
+                    ),
+                  ),
+                ),
+                Expanded(child: _tab == 0 ? _usersList() : _chatsList()),
+              ],
             ),
-          ),
-          Expanded(
-            child: _tab == 0 ? _usersList() : _tab == 1 ? _usersList() : _historyList(),
-          ),
-        ],
-      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _tab,
-        onTap: (i) => setState(() => _tab = i),
+        onTap: (i) => setState(() { _tab = i; _search = ''; _searchCtrl.clear(); }),
         selectedItemColor: Colors.green,
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.call), label: 'Calls'),
-          BottomNavigationBarItem(icon: Icon(Icons.chat), label: 'Chats'),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
+          BottomNavigationBarItem(icon: Icon(Icons.chat_bubble), label: 'Chats'),
+          BottomNavigationBarItem(icon: Icon(Icons.person), label: 'Profile'),
         ],
       ),
     );
@@ -1140,6 +1144,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await _userRef.set({
         'displayName': name,
         'discoverableByPhone': _discoverable,
+        if (_discoverable && _phone != null) ...{
+          'phoneNumber': _phone,
+          'phoneSearch': _phone!.replaceAll(RegExp(r'[^0-9]'), ''),
+        },
+        if (!_discoverable) ...{
+          'phoneNumber': FieldValue.delete(),
+          'phoneSearch': FieldValue.delete(),
+        },
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile saved')));
@@ -1577,9 +1589,15 @@ class _CallScreenState extends State<CallScreen> {
   Future<void> _saveVerifiedPhone(String phone) async {
     final digits = phone.replaceAll(RegExp(r'[^0-9]'), '');
     await _userRef.set({
-      'phoneNumber': phone,
-      'phoneSearch': digits,
       'discoverableByPhone': _discoverable,
+      if (_discoverable) ...{
+        'phoneNumber': phone,
+        'phoneSearch': digits,
+      },
+      if (!_discoverable) ...{
+        'phoneNumber': FieldValue.delete(),
+        'phoneSearch': FieldValue.delete(),
+      },
       'uid': FirebaseAuth.instance.currentUser?.uid,
     }, SetOptions(merge: true));
     if (mounted) setState(() => _phone = phone);
