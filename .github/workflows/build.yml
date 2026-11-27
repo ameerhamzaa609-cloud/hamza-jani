@@ -62,21 +62,21 @@ jobs:
           for gradle_file in gradle_files:
               original = gradle_file.read_text()
               updated = re.sub(
-                  r'(?m)^(\s*)compileSdkVersion\b[^\n]*$',
-                  r'\g<1>compileSdkVersion 36',
-                  original
-              )
-              updated = re.sub(
-                  r'(?m)^(\s*)compileSdk\s*=\s*[^\n]+$',
-                  r'\g<1>compileSdk = 36',
-                  updated
-              )
-              updated = re.sub(
-                  r'(?m)^(\s*)compileSdkVersion\s*\([^\n]*\)\s*$',
-                  r'\g<1>compileSdkVersion(36)',
-                  updated
-              )
-              if updated != original:
+              r'(?m)^(\\s*)compileSdkVersion\\b[^\\n]*$',
+              r'\\g<1>compileSdkVersion 36',
+              original
+          )
+          updated = re.sub(
+              r'(?m)^(\\s*)compileSdk(\\s*=\\s*|\\s+)[^\\n]+$',
+              lambda match: match.group(1) + 'compileSdk' + match.group(2) + '36',
+              updated
+          )
+          updated = re.sub(
+              r'(?m)^(\\s*)compileSdkVersion\\s*\\([^\\n]*\\)\\s*$',
+              r'\\g<1>compileSdkVersion(36)',
+              updated
+          )
+          if updated != original:
                   gradle_file.write_text(updated)
                   changed.append(str(gradle_file))
           print(f"Updated {len(changed)} Android plugin Gradle files to compile SDK 36.")
