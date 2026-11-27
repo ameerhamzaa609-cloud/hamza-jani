@@ -48,6 +48,22 @@ jobs:
 
           flutter create --platforms=android .
 
+      - name: Set Android library compile SDK
+        run: |
+          # Flutter 3.50 generates Android library projects with compileSdk 33.
+          # Raise every Android library module after Flutter has generated its Gradle files.
+          cat >> android/build.gradle <<'GRADLE'
+
+          subprojects {
+              afterEvaluate {
+                  def androidExtension = extensions.findByName("android")
+                  if (androidExtension != null) {
+                      androidExtension.compileSdk = 36
+                  }
+              }
+          }
+          GRADLE
+
       - name: Install Dependencies
         run: flutter pub get
 
