@@ -58,7 +58,8 @@ jobs:
 
           cache = Path.home() / ".pub-cache"
           changed = []
-          for gradle_file in cache.glob("**/android/build.gradle"):
+          gradle_files = list(cache.glob("**/android/build.gradle")) + list(cache.glob("**/android/build.gradle.kts"))
+          for gradle_file in gradle_files:
               original = gradle_file.read_text()
               updated = re.sub(
                   r'(?m)^(\s*compileSdkVersion\s+)\d+',
@@ -66,8 +67,13 @@ jobs:
                   original
               )
               updated = re.sub(
-                  r'(?m)^(\s*compileSdk\s*=\s*)\d+',
+                  r'(?m)^(\s*compileSdk(?:Version)?\s*=\s*)\d+',
                   r'\g<1>36',
+                  updated
+              )
+              updated = re.sub(
+                  r'(?m)^(\s*compileSdkVersion\s*\()\d+(\))',
+                  r'\g<1>36\g<2>',
                   updated
               )
               if updated != original:
