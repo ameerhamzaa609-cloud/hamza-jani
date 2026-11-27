@@ -59,27 +59,182 @@ Future<String?> uploadToCloudinary(File file, String type) async {
   }
 }
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
- await Firebase.initializeApp();
-  FirebaseMessaging.onBackgroundMessage(_firebaseBgHandler);
-  const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-  await localNotif.initialize(const InitializationSettings(android: androidInit));
-  // Create high importance channel for calls
-  const channel = AndroidNotificationChannel('hamza_calls', 'Hamza Jani Calls', description: 'Incoming calls', importance: Importance.max, playSound: true);
-  await localNotif.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()?.createNotificationChannel(channel);
   runApp(const HamzaJaniApp());
 }
 
-class HamzaJaniApp extends StatelessWidget {
+class HamzaJaniApp extends StatefulWidget {
   const HamzaJaniApp({super.key});
+
+  @override
+  State<HamzaJaniApp> createState() => _HamzaJaniAppState();
+}
+
+class _HamzaJaniAppState extends State<HamzaJaniApp> {
+  bool _ready = false;
+  bool _starting = false;
+  String? _startupError;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    if (_starting) return;
+    setState(() {
+      _starting = true;
+      _startupError = null;
+    });
+
+    try {
+      await Firebase.initializeApp();
+      FirebaseMessaging.onBackgroundMessage(_firebaseBgHandler);
+
+      // Notifications are useful but must never prevent the app from opening.
+      try {
+        const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
+        await localNotif.initialize(
+          const InitializationSettings(android: androidInit),
+        );
+        const channel = AndroidNotificationChannel(
+          'hamza_calls',
+          'Hamza Jani Calls',
+          description: 'Incoming calls',
+          importance: Importance.max,
+          playSound: true,
+        );
+        await localNotif
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.createNotificationChannel(channel);
+      } catch (e) {
+        debugPrint('Notification initialization skipped: $e');
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _ready = true;
+        _starting = false;
+      });
+    } catch (e, stack) {
+      debugPrint('Hamza Jani startup failed: $e');
+      debugPrintStack(stackTrace: stack);
+      if (!mounted) return;
+      setState(() {
+        _startupError = e.toString();
+        _starting = false;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Hamza Jani',
       theme: ThemeData(primarySwatch: Colors.green, useMaterial3: true),
-      home: const AuthGate(),
+      home: _ready
+          ? const AuthGate()
+          : _startupError != null
+              ? StartupErrorScreen(
+                  error: _startupError!,
+                  onRetry: _initializeApp,
+                )
+              : const StartupScreen(),
+    );
+  }
+}
+
+class StartupScreen extends StatelessWidget {
+  const StartupScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFF16833B),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 48,
+              backgroundColor: Colors.white,
+              child: Icon(Icons.call, size: 52, color: Color(0xFF16833B)),
+            ),
+            SizedBox(height: 18),
+            Text(
+              'HAMZA JANI',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 27,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 22),
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 12),
+            Text('Starting app...', style: TextStyle(color: Colors.white70)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class StartupErrorScreen extends StatelessWidget {
+  final String error;
+  final VoidCallback onRetry;
+
+  const StartupErrorScreen({
+    super.key,
+    required this.error,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF7F7F7),
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 56),
+                const SizedBox(height: 16),
+                const Text(
+                  'Hamza Jani could not start',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Please check your internet connection and try again. '
+                  'If this message stays, send this error to support:',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 12),
+                SelectableText(
+                  error,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
+                const SizedBox(height: 22),
+                ElevatedButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('TRY AGAIN'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
