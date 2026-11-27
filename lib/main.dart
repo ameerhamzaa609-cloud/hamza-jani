@@ -691,17 +691,33 @@ class _ChatScreenState extends State<ChatScreen> {
   final _picker = img.ImagePicker();
   bool _uploading = false;
   String get chatId {
-    var a = [widget.myName, widget.otherName]..sort();
-    return '${a[0]}_${a[1]}';
+    final names = [widget.myName.trim().toLowerCase(), widget.otherName.trim().toLowerCase()]..sort();
+    return '${names[0]}_${names[1]}';
   }
+
   Future<void> _sendText() async {
     final t = _msgCtrl.text.trim();
     if (t.isEmpty) return;
-    _msgCtrl.clear();
-    await FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').add({
-      'from': widget.myName, 'to': widget.otherName, 'type': 'text', 'text': t, 'url': '', 'createdAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      await FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').add({
+        'from': widget.myName,
+        'to': widget.otherName,
+        'type': 'text',
+        'text': t,
+        'url': '',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) _msgCtrl.clear();
+    } catch (e) {
+      debugPrint('Message send failed for $chatId: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Message not sent: $e')),
+        );
+      }
+    }
   }
+
   Future<void> _pickAndSend(String kind) async {
     img.XFile? f;
     if (kind == 'image') f = await _picker.pickImage(source: img.ImageSource.gallery, imageQuality: 70);
@@ -729,11 +745,19 @@ class _ChatScreenState extends State<ChatScreen> {
           if (_uploading) const LinearProgressIndicator(color: Colors.green),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').orderBy('createdAt', descending: false).snapshots(),
+              stream: FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').snapshots(),
               builder: (c, s) {
                 if (s.hasError) return Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('Cannot load messages from Firebase: ${s.error}', textAlign: TextAlign.center)));
                 if (s.connectionState == ConnectionState.waiting && !s.hasData) return const Center(child: CircularProgressIndicator());
-                var msgs = s.data!.docs;
+                final msgs = List<QueryDocumentSnapshot>.from(s.data!.docs)
+                  ..sort((a, b) {
+                    final aTime = (a.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                    final bTime = (b.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                    if (aTime == null && bTime == null) return 0;
+                    if (aTime == null) return -1;
+                    if (bTime == null) return 1;
+                    return aTime.compareTo(bTime);
+                  });
                 return ListView.builder(
                   itemCount: msgs.length,
                   itemBuilder: (c, i) {
