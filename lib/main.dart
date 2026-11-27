@@ -569,7 +569,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _historyList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('calls').where('participants', arrayContains: myName).orderBy('createdAt', descending: true).limit(50).snapshots(),
+      stream: FirebaseFirestore.instance.collection('calls').where('participants', arrayContains: myName).limit(100).snapshots(),
       builder: (c, s) {
         if (s.hasError) {
           return Center(
@@ -593,10 +593,21 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         if (!s.hasData) return const Center(child: Text('No call history yet'));
         if (s.data!.docs.isEmpty) return const Center(child: Text('No call history yet'));
+        final historyDocs = List<QueryDocumentSnapshot>.from(s.data!.docs);
+        historyDocs.sort((a, b) {
+          final aData = a.data() as Map<String, dynamic>;
+          final bData = b.data() as Map<String, dynamic>;
+          final aTime = aData['createdAt'] as Timestamp?;
+          final bTime = bData['createdAt'] as Timestamp?;
+          if (aTime == null && bTime == null) return 0;
+          if (aTime == null) return 1;
+          if (bTime == null) return -1;
+          return bTime.compareTo(aTime);
+        });
         return ListView.builder(
-          itemCount: s.data!.docs.length,
+          itemCount: historyDocs.length,
           itemBuilder: (c, i) {
-            final d = s.data!.docs[i];
+            final d = historyDocs[i];
             final other = (d['caller'] == myName) ? d['callee'] : d['caller'];
             return ListTile(
               leading: Icon(d['isVideo'] == true ? Icons.videocam : Icons.call, color: Colors.green),
