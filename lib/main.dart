@@ -484,6 +484,11 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.green,
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: _openSettings,
+          ),
           IconButton(icon: const Icon(Icons.logout), onPressed: () async {
             await FirebaseFirestore.instance.collection('users').doc(myName).set({'online': false}, SetOptions(merge: true));
             await FirebaseAuth.instance.signOut();
@@ -518,6 +523,67 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+
+  Future<void> _openSettings() async {
+    final userRef = FirebaseFirestore.instance.collection('users').doc(myName);
+    final userSnap = await userRef.get();
+    if (!mounted) return;
+    final nameController = TextEditingController(
+      text: (userSnap.data()?['displayName'] ?? userSnap.data()?['username'] ?? myName).toString(),
+    );
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Settings'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Display name'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: nameController,
+              maxLength: 40,
+              decoration: const InputDecoration(
+                hintText: 'Enter your name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text('Your login username and account ID will stay the same.',
+                style: TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
+          ElevatedButton(
+            onPressed: () async {
+              final displayName = nameController.text.trim();
+              if (displayName.isEmpty) return;
+              try {
+                await userRef.set({'displayName': displayName}, SetOptions(merge: true));
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Display name updated')),
+                  );
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Could not update name: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+    nameController.dispose();
+  }
+
   Widget _usersList() {
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('users').snapshots(),
@@ -550,7 +616,7 @@ class _HomeScreenState extends State<HomeScreen> {
             final online = userData['online'] == true;
             return ListTile(
               leading: CircleAvatar(backgroundColor: Colors.green.shade100, child: Text(u.isNotEmpty ? u[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold))),
-              title: Text(u, style: const TextStyle(fontWeight: FontWeight.bold)),
+              title: Text((userData['displayName'] ?? u).toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
               subtitle: Text(online ? '● Online' : '○ Offline', style: TextStyle(color: online ? Colors.green : Colors.grey)),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
