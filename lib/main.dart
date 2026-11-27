@@ -154,16 +154,12 @@ class StartupScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Color(0xFF16833B),
+      backgroundColor: Color(0xFF0B2B22),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 48,
-              backgroundColor: Colors.white,
-              child: Icon(Icons.call, size: 52, color: Color(0xFF16833B)),
-            ),
+            HamzaJaniLogo(size: 112),
             SizedBox(height: 18),
             Text(
               'HAMZA JANI',
@@ -239,6 +235,47 @@ class StartupErrorScreen extends StatelessWidget {
   }
 }
 
+
+class HamzaJaniLogo extends StatelessWidget {
+  final double size;
+  const HamzaJaniLogo({super.key, this.size = 104});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(width: size, height: size, child: CustomPaint(painter: _HamzaJaniLogoPainter()));
+  }
+}
+
+class _HamzaJaniLogoPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.save();
+    canvas.scale(size.width / 100);
+    final green = Paint()..color = const Color(0xFF0B2B22);
+    final gold = Paint()
+      ..color = const Color(0xFFD8B35B)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    canvas.drawCircle(const Offset(50, 50), 47, green);
+    canvas.drawCircle(const Offset(50, 50), 43, gold);
+    final h = Path()
+      ..moveTo(29, 29)..lineTo(29, 70)
+      ..moveTo(29, 49)..lineTo(51, 49)
+      ..moveTo(51, 29)..lineTo(51, 70);
+    canvas.drawPath(h, gold);
+    final j = Path()
+      ..moveTo(72, 29)..lineTo(72, 59)
+      ..cubicTo(72, 75, 57, 78, 48, 67);
+    canvas.drawPath(j, gold);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
 // ===== AUTH GATE =====
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
@@ -301,14 +338,14 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.green.shade700,
+      backgroundColor: const Color(0xFF0B2B22),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
             child: Column(
               children: [
-                const CircleAvatar(radius: 55, backgroundColor: Colors.white, child: Icon(Icons.call, size: 60, color: Colors.green)),
+                const HamzaJaniLogo(size: 124),
                 const SizedBox(height: 16),
                 const Text('HAMZA JANI', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold)),
                 const Text('Call • Video • Chat', style: TextStyle(color: Colors.white70, fontSize: 16)),
