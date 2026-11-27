@@ -1013,7 +1013,7 @@ class _CallScreenState extends State<CallScreen> {
       if (!doc.exists) return;
       var d = doc.data()!;
       if (d['status'] == 'ended') { _endLocal(); return; }
-      if (!widget.isCaller && d['offer'] != null && !_handlingOffer && _pc!.getRemoteDescription() == null) {
+      if (!widget.isCaller && d['offer'] != null && !_handlingOffer && !_remoteDescriptionReady) {
         _handlingOffer = true;
         try {
           await _pc!.setRemoteDescription(RTCSessionDescription(d['offer']['sdp'], d['offer']['type']));
@@ -1027,7 +1027,7 @@ class _CallScreenState extends State<CallScreen> {
           _handlingOffer = false;
         }
       }
-      if (widget.isCaller && d['answer'] != null && !_handlingAnswer && _pc!.getRemoteDescription() == null) {
+      if (widget.isCaller && d['answer'] != null && !_handlingAnswer && !_remoteDescriptionReady) {
         _handlingAnswer = true;
         try {
           await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
