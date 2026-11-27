@@ -446,21 +446,51 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showIncoming(String callId, String caller, bool isVideo) async {
-    if (!mounted) return;
-    await playHamzaRingtone();
-    // Show system notification too - so it rings when phone locked
-    await localNotif.show(
-      999,
-      'Hamza Jani - Incoming Call',
-      '$caller is calling you...',
-      const NotificationDetails(android: AndroidNotificationDetails('hamza_calls', 'Hamza Jani Calls', importance: Importance.max, priority: Priority.max, playSound: true, fullScreenIntent: true)),
-    );
-    if (!mounted) return;
-    showDialog(
+    if (!mounted || callId.isEmpty) return;
+
+    // Put the Answer/Reject controls on screen immediately. Audio and
+    // notification work must never delay the in-app incoming-call dialog.
+    unawaited(playHamzaRingtone().catchError((Object e) {
+      debugPrint('Incoming ringtone failed: $e');
+    }));
+
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => IncomingCallDialog(callId: callId, caller: caller, myName: myName, isVideo: isVideo, onAnswered: () async { await stopRingtone(); }, onRejected: () async { await stopRingtone(); }),
-    );
+      builder: (_) => IncomingCallDialog(
+        callId: callId,
+        caller: caller,
+        myName: myName,
+        isVideo: isVideo,
+        onAnswered: () async { await stopRingtone(); },
+        onRejected: () async { await stopRingtone(); },
+      ),
+    ).then((_) {
+      _shownCalls.remove(callId);
+    });
+
+    // A notification is secondary while the app is already open. Run it
+    // separately so a notification plugin error cannot hide call controls.
+    unawaited(() async {
+      try {
+        await localNotif.show(
+          999,
+          'Hamza Jani - Incoming Call',
+          '$caller is calling you...',
+          const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'hamza_calls',
+              'Hamza Jani Calls',
+              importance: Importance.max,
+              priority: Priority.max,
+              playSound: true,
+            ),
+          ),
+        );
+      } catch (e) {
+        debugPrint('Incoming call notification failed: $e');
+      }
+    }());
   }
 
   @override
