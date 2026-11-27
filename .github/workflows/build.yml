@@ -1,4 +1,4 @@
-name: Build MyFirstApp Android APK
+name: Build Hamza Jani Android APK
 
 on:
   workflow_dispatch:
@@ -46,24 +46,37 @@ jobs:
           fi
           flutter create --platforms=android .
 
-      - name: Set Android library compile SDK
-        run: |
-          # Configure library modules as soon as their Android plugin is applied.
-          # Do not use afterEvaluate: Flutter/Gradle may already have evaluated a module.
-          cat >> android/build.gradle <<'GRADLE'
-
-          subprojects { project ->
-              project.plugins.withId("com.android.library") {
-                  def androidExtension = project.extensions.findByName("android")
-                  if (androidExtension != null) {
-                      androidExtension.compileSdk = 36
-                  }
-              }
-          }
-          GRADLE
-
       - name: Install Dependencies
         run: flutter pub get
+
+      - name: Set Android plugin compile SDK
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          cache = Path.home() / ".pub-cache"
+          changed = []
+          for gradle_file in cache.glob("**/android/build.gradle"):
+              original = gradle_file.read_text()
+              updated = re.sub(
+                  r'(?m)^(\s*compileSdkVersion\s+)\d+',
+                  r'\g<1>36',
+                  original
+              )
+              updated = re.sub(
+                  r'(?m)^(\s*compileSdk\s*=\s*)\d+',
+                  r'\g<1>36',
+                  updated
+              )
+              if updated != original:
+                  gradle_file.write_text(updated)
+                  changed.append(str(gradle_file))
+          print(f"Updated {len(changed)} Android plugin Gradle files to compile SDK 36.")
+          for path in changed:
+              print(path)
+          PY
 
       - name: Build Release APK
         run: flutter build apk --release
@@ -78,12 +91,12 @@ jobs:
             exit 1
           fi
           mkdir -p dist
-          cp "$APK" dist/MyFirstApp-release.apk
+          cp "$APK" dist/Hamza-Jani-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: MyFirstApp-Android-APK
-          path: dist/MyFirstApp-release.apk
+          name: Hamza-Jani-Android-APK
+          path: dist/Hamza-Jani-release.apk
           if-no-files-found: error
           retention-days: 14
