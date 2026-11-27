@@ -921,6 +921,7 @@ class _CallScreenState extends State<CallScreen> {
   final _remote = RTCVideoRenderer();
   MediaStream? _localStream;
   bool _muted = false; bool _speaker = false; bool _connected = false; bool _front = true;
+  String _callStatus = 'Starting call...';
   StreamSubscription? _callSub; StreamSubscription? _candSub;
   Timer? _callTimeout;
   bool _remoteDescriptionReady = false;
@@ -946,7 +947,8 @@ class _CallScreenState extends State<CallScreen> {
     await _local.initialize(); await _remote.initialize();
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': widget.isVideo ? {'facingMode': 'user'} : false});
     _local.srcObject = _localStream;
-    _pc = await createPeerConnection({'iceServers': [{'urls': 'stun:stun.l.google.com:19302'}]});
+    final iceServers = await _loadIceServers();
+    _pc = await createPeerConnection({'iceServers': iceServers});
     _pc!.onTrack = (e) { if (e.streams.isNotEmpty && mounted) setState(() => _remote.srcObject = e.streams[0]); };
     _pc!.onIceCandidate = (c) async {
       if (c.candidate == null) return;
@@ -958,15 +960,21 @@ class _CallScreenState extends State<CallScreen> {
     };
     _pc!.onConnectionState = (state) {
       if (!mounted) return;
+      debugPrint('WebRTC peer connection state: $state');
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _callTimeout?.cancel();
-        setState(() => _connected = true);
+        setState(() { _connected = true; _callStatus = 'Connected'; });
         unawaited(FirebaseFirestore.instance.collection('calls').doc(widget.callId)
             .set({'status': 'connected', 'connectedAt': FieldValue.serverTimestamp()},
                 SetOptions(merge: true))
             .catchError((Object e) => debugPrint('Updating connected call status failed: $e')));
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
+        setState(() => _callStatus = 'Connecting audio and video...');
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        setState(() => _callStatus = 'Connection failed');
         _endCall();
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        setState(() => _callStatus = 'Reconnecting...');
       }
     };
     _localStream!.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
@@ -1010,6 +1018,39 @@ class _CallScreenState extends State<CallScreen> {
     }, onError: (e) { debugPrint('ICE candidate listener failed: $e'); });
   }
 
+  // Fetch short-lived TURN credentials from our authenticated Worker.
+  // The Cloudflare API secret must never be embedded in this mobile app.
+  Future<List<Map<String, dynamic>>> _loadIceServers() async {
+    const endpoint = String.fromEnvironment('TURN_CONFIG_URL');
+    if (endpoint.isEmpty) {
+      _callStatus = 'TURN not configured yet';
+      return [{'urls': 'stun:stun.l.google.com:19302'}];
+    }
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw StateError('You must be signed in to place a call');
+      final token = await user.getIdToken();
+      final response = await http.post(
+        Uri.parse(endpoint),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw HttpException('TURN service returned ${response.statusCode}');
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final servers = body['iceServers'];
+      if (servers is! List || servers.isEmpty) {
+        throw const FormatException('TURN service returned no ICE servers');
+      }
+      _callStatus = 'Connecting securely...';
+      return servers.map((server) => Map<String, dynamic>.from(server as Map)).toList();
+    } catch (e) {
+      debugPrint('TURN credentials unavailable: $e');
+      _callStatus = 'TURN unavailable — trying direct connection';
+      return [{'urls': 'stun:stun.l.google.com:19302'}];
+    }
+  }
+
   Future<void> _flushPendingCandidates() async {
     final pending = List<RTCIceCandidate>.from(_pendingCandidates);
     _pendingCandidates.clear();
@@ -1028,9 +1069,21 @@ class _CallScreenState extends State<CallScreen> {
     setState(() => _speaker = !_speaker);
   }
   Future<void> _switchCamera() async {
-    if (_localStream != null) {
-      var track = _localStream!.getVideoTracks().firstOrNull;
-      if (track != null) { await Helper.switchCamera(track); setState(() => _front = !_front); }
+    try {
+      final tracks = _localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
+      if (tracks.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera is not available in this call')),
+        );
+        return;
+      }
+      await Helper.switchCamera(tracks.first);
+      if (mounted) setState(() => _front = !_front);
+    } catch (e) {
+      debugPrint('Camera switch failed: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch camera: $e')),
+      );
     }
   }
   Future<void> _endCall() async {
@@ -1061,8 +1114,27 @@ class _CallScreenState extends State<CallScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            Positioned.fill(child: widget.isVideo ? RTCVideoView(_remote, mirror: true) : Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [CircleAvatar(radius: 60, child: Text(widget.otherName[0].toUpperCase(), style: const TextStyle(fontSize: 40))), const SizedBox(height: 16), Text(widget.otherName, style: const TextStyle(color: Colors.white, fontSize: 24)), Text(_connected ? 'Connected' : 'Calling...', style: const TextStyle(color: Colors.white70))]))),
-            if (widget.isVideo) Positioned(top: 16, right: 16, width: 120, height: 170, child: ClipRRect(borderRadius: BorderRadius.circular(12), child: RTCVideoView(_local, mirror: true))),
+            Positioned.fill(child: widget.isVideo
+                ? RTCVideoView(_remote, mirror: false)
+                : Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    CircleAvatar(radius: 60, child: Text(widget.otherName[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
+                    const SizedBox(height: 16),
+                    Text(widget.otherName, style: const TextStyle(color: Colors.white, fontSize: 24)),
+                    Text(_callStatus, style: const TextStyle(color: Colors.white70)),
+                  ]))),
+            if (widget.isVideo) Positioned(
+              top: 16, right: 16, width: 120, height: 170,
+              child: ClipRRect(borderRadius: BorderRadius.circular(12),
+                child: RTCVideoView(_local, mirror: _front)),
+            ),
+            if (widget.isVideo && !_connected) Positioned(
+              top: 16, left: 16, right: 150,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+                child: Text(_callStatus, style: const TextStyle(color: Colors.white, fontSize: 12)),
+              ),
+            ),
             Positioned(bottom: 30, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
               FloatingActionButton(backgroundColor: _muted ? Colors.white : Colors.grey.shade800, onPressed: _toggleMute, child: Icon(_muted ? Icons.mic_off : Icons.mic, color: _muted ? Colors.black : Colors.white)),
               FloatingActionButton(backgroundColor: _speaker ? Colors.white : Colors.grey.shade800, onPressed: _toggleSpeaker, child: Icon(Icons.volume_up, color: _speaker ? Colors.black : Colors.white)),
