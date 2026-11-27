@@ -321,11 +321,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (_isSignup) {
         await FirebaseAuth.instance.createUserWithEmailAndPassword(email: email, password: pass);
         await FirebaseFirestore.instance.collection('users').doc(user).set({
-          'username': user, 'email': email, 'createdAt': FieldValue.serverTimestamp(), 'online': true,
+          'username': user, 'uid': FirebaseAuth.instance.currentUser!.uid, 'email': email, 'createdAt': FieldValue.serverTimestamp(), 'online': true,
         });
       } else {
         await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: pass);
-        await FirebaseFirestore.instance.collection('users').doc(user).set({'online': true}, SetOptions(merge: true));
+        await FirebaseFirestore.instance.collection('users').doc(user).set({'username': user, 'uid': FirebaseAuth.instance.currentUser!.uid, 'online': true}, SetOptions(merge: true));
       }
     } on FirebaseAuthException catch (e) {
       setState(() => _msg = e.message ?? 'Error');
@@ -540,22 +540,34 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _usersList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').orderBy('username').snapshots(),
+      stream: FirebaseFirestore.instance.collection('users').snapshots(),
       builder: (c, s) {
         if (s.hasError) return Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('Cannot load users from Firebase: ${s.error}', textAlign: TextAlign.center)));
         if (s.connectionState == ConnectionState.waiting && !s.hasData) return const Center(child: CircularProgressIndicator());
         var docs = s.data!.docs.where((d) {
-          final u = (d['username'] ?? '').toString().toLowerCase();
-          if (u == myName) return false;
+          final data = d.data() as Map<String, dynamic>;
+          final u = (data['username'] ?? d.id).toString();
+          final username = u.toLowerCase();
+          final documentId = d.id.toLowerCase();
+          final uid = (data['uid'] ?? '').toString().toLowerCase();
+          if (username == myName || documentId == myName) return false;
           if (_search.isEmpty) return true;
-          return u.contains(_search);
-        }).toList();
+          return username.contains(_search) ||
+              documentId.contains(_search) ||
+              uid.contains(_search);
+        }).toList()
+          ..sort((a, b) {
+            final aName = ((a.data() as Map<String, dynamic>)['username'] ?? a.id).toString().toLowerCase();
+            final bName = ((b.data() as Map<String, dynamic>)['username'] ?? b.id).toString().toLowerCase();
+            return aName.compareTo(bName);
+          });
         if (docs.isEmpty) return const Center(child: Text('No user found.'));
         return ListView.builder(
           itemCount: docs.length,
           itemBuilder: (c, i) {
-            final u = docs[i]['username'].toString();
-            final online = docs[i]['online'] == true;
+            final userData = docs[i].data() as Map<String, dynamic>;
+            final u = (userData['username'] ?? docs[i].id).toString();
+            final online = userData['online'] == true;
             return ListTile(
               leading: CircleAvatar(backgroundColor: Colors.green.shade100, child: Text(u.isNotEmpty ? u[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold))),
               title: Text(u, style: const TextStyle(fontWeight: FontWeight.bold)),
