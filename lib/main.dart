@@ -413,20 +413,52 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _listenIncoming() {
-    // This works even when app is open in background / minimised
-    _incomingSub = FirebaseFirestore.instance.collection('calls').where('callee', isEqualTo: myName).where('status', isEqualTo: 'calling').snapshots().listen((snap) {
-      for (var doc in snap.docs) {
-        if (!_shownCalls.contains(doc.id)) {
-          _shownCalls.add(doc.id);
-          var d = doc.data();
-          _showIncoming(doc.id, d['caller'] ?? 'Unknown', d['isVideo'] == true);
+    // Filter status locally so this listener does not require a Firestore
+    // composite index for (callee, status).
+    _incomingSub = FirebaseFirestore.instance
+        .collection('calls')
+        .where('callee', isEqualTo: myName)
+        .snapshots()
+        .listen((snap) {
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        if (data['status'] == 'calling') {
+          _showIncoming(
+            doc.id,
+            (data['caller'] ?? 'Unknown').toString(),
+            data['isVideo'] == true,
+          );
         }
+      }
+    }, onError: (Object error) {
+      debugPrint('Incoming call listener failed: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Cannot receive calls: $error')),
+        );
       }
     });
   }
 
   Future<void> _showIncoming(String callId, String caller, bool isVideo) async {
-    if (!mounted || callId.isEmpty) return;
+    if (!mounted || callId.isEmpty || _shownCalls.contains(callId)) return;
+    _shownCalls.add(callId);
+
+    // Ignore stale push notifications or calls already answered elsewhere.
+    try {
+      final call = await FirebaseFirestore.instance.collection('calls').doc(callId).get();
+      if (!mounted || !call.exists || call.data()?['status'] != 'calling') {
+        _shownCalls.remove(callId);
+        return;
+      }
+      final data = call.data()!;
+      caller = (data['caller'] ?? caller).toString();
+      isVideo = data['isVideo'] == true;
+    } catch (e) {
+      debugPrint('Checking incoming call failed: $e');
+      _shownCalls.remove(callId);
+      return;
+    }
 
     // Put the Answer/Reject controls on screen immediately. Audio and
     // notification work must never delay the in-app incoming-call dialog.
@@ -929,6 +961,10 @@ class _CallScreenState extends State<CallScreen> {
       if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
         _callTimeout?.cancel();
         setState(() => _connected = true);
+        unawaited(FirebaseFirestore.instance.collection('calls').doc(widget.callId)
+            .set({'status': 'connected', 'connectedAt': FieldValue.serverTimestamp()},
+                SetOptions(merge: true))
+            .catchError((Object e) => debugPrint('Updating connected call status failed: $e')));
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         _endCall();
       }
@@ -949,7 +985,7 @@ class _CallScreenState extends State<CallScreen> {
         await _flushPendingCandidates();
         var ans = await _pc!.createAnswer();
         await _pc!.setLocalDescription(ans);
-        await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'answer': ans.toMap(), 'status': 'connected'}, SetOptions(merge: true));
+        await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'answer': ans.toMap(), 'status': 'accepted'}, SetOptions(merge: true));
       }
       if (widget.isCaller && d['answer'] != null && _pc!.getRemoteDescription() == null) {
         await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
