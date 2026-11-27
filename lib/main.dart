@@ -946,6 +946,8 @@ class _CallScreenState extends State<CallScreen> {
   }
 
   Future<void> _init() async {
+    try {
+    if (mounted) setState(() => _callStatus = 'Preparing call...');
     await _local.initialize(); await _remote.initialize();
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': widget.isVideo ? {'facingMode': 'user'} : false});
     _local.srcObject = _localStream;
@@ -962,16 +964,20 @@ class _CallScreenState extends State<CallScreen> {
       if (!mounted) return;
       final label = state.toString().split('.').last;
       if (label.toLowerCase().contains('failed')) {
-        setState(() => _callStatus = 'Network connection failed');
+        setState(() => _callStatus = 'Network path failed — TURN may be required');
       } else if (label.toLowerCase().contains('checking')) {
-        setState(() => _callStatus = 'Checking network connection...');
+        setState(() => _callStatus = 'Checking network path...');
+      } else if (label.toLowerCase().contains('connected') || label.toLowerCase().contains('completed')) {
+        setState(() => _callStatus = 'Network path established; waiting for media...');
       }
     };
     _pc!.onIceCandidate = (c) async {
       if (c.candidate == null) return;
       try {
         await FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').add({
-          'from': widget.myName, 'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex,
+          'from': widget.myName,
+          'fromUid': FirebaseAuth.instance.currentUser?.uid,
+          'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex,
         });
       } catch (e) { debugPrint('Saving ICE candidate failed: $e'); }
     };
@@ -988,8 +994,7 @@ class _CallScreenState extends State<CallScreen> {
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
         setState(() => _callStatus = 'Connecting audio and video...');
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
-        setState(() => _callStatus = 'Connection failed');
-        _endCall();
+        setState(() => _callStatus = 'Connection failed — check network / TURN settings');
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
         setState(() => _callStatus = 'Reconnecting...');
       }
@@ -1037,8 +1042,16 @@ class _CallScreenState extends State<CallScreen> {
       for (var doc in snap.docChanges) {
         if (doc.type == DocumentChangeType.added) {
           var cd = doc.doc.data()!;
-          if (cd['from'] != widget.myName && cd['candidate'] != null) {
-            final candidate = RTCIceCandidate(cd['candidate'], cd['sdpMid'], cd['sdpMLineIndex']);
+          final myUid = FirebaseAuth.instance.currentUser?.uid;
+          final isOtherUser = cd['fromUid'] != null && myUid != null
+              ? cd['fromUid'] != myUid
+              : cd['from'] != widget.myName;
+          if (isOtherUser && cd['candidate'] != null) {
+            final candidate = RTCIceCandidate(
+              cd['candidate'] as String?,
+              cd['sdpMid'] as String?,
+              (cd['sdpMLineIndex'] as num?)?.toInt(),
+            );
             if (_remoteDescriptionReady) {
               _pc!.addCandidate(candidate).catchError((e) => debugPrint('Adding ICE candidate failed: $e'));
             } else {
@@ -1047,7 +1060,14 @@ class _CallScreenState extends State<CallScreen> {
           }
         }
       }
-    }, onError: (e) { debugPrint('ICE candidate listener failed: $e'); });
+    }, onError: (e) {
+      debugPrint('ICE candidate listener failed: $e');
+      if (mounted) setState(() => _callStatus = 'Could not receive network candidates');
+    });
+    } catch (e, st) {
+      debugPrint('Call setup failed: $e\\n$st');
+      if (mounted) setState(() => _callStatus = 'Call setup failed: $e');
+    }
   }
 
   // Fetch short-lived TURN credentials from our authenticated Worker.
@@ -1055,7 +1075,8 @@ class _CallScreenState extends State<CallScreen> {
   Future<List<Map<String, dynamic>>> _loadIceServers() async {
     const endpoint = String.fromEnvironment('TURN_CONFIG_URL');
     if (endpoint.isEmpty) {
-      _callStatus = 'TURN not configured yet';
+      _callStatus = 'Direct connection only — TURN not configured';
+      debugPrint('TURN_CONFIG_URL is empty; using STUN only. Calls may fail across restrictive/mobile networks.');
       return [{'urls': 'stun:stun.l.google.com:19302'}];
     }
     try {
@@ -1152,14 +1173,14 @@ class _CallScreenState extends State<CallScreen> {
                     CircleAvatar(radius: 60, child: Text(widget.otherName[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
                     const SizedBox(height: 16),
                     Text(widget.otherName, style: const TextStyle(color: Colors.white, fontSize: 24)),
-                    Text(_callStatus, style: const TextStyle(color: Colors.white70)),
+                    Text(_callStatus, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
                   ]))),
             if (widget.isVideo) Positioned(
               top: 16, right: 16, width: 120, height: 170,
               child: ClipRRect(borderRadius: BorderRadius.circular(12),
                 child: RTCVideoView(_local, mirror: _front)),
             ),
-            if (widget.isVideo && !_connected) Positioned(
+            if (widget.isVideo) Positioned(
               top: 16, left: 16, right: 150,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
