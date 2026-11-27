@@ -925,6 +925,8 @@ class _CallScreenState extends State<CallScreen> {
   StreamSubscription? _callSub; StreamSubscription? _candSub;
   Timer? _callTimeout;
   bool _remoteDescriptionReady = false;
+  bool _handlingOffer = false;
+  bool _handlingAnswer = false;
   bool _ending = false;
   final List<RTCIceCandidate> _pendingCandidates = [];
 
@@ -949,7 +951,22 @@ class _CallScreenState extends State<CallScreen> {
     _local.srcObject = _localStream;
     final iceServers = await _loadIceServers();
     _pc = await createPeerConnection({'iceServers': iceServers});
-    _pc!.onTrack = (e) { if (e.streams.isNotEmpty && mounted) setState(() => _remote.srcObject = e.streams[0]); };
+    _pc!.onTrack = (e) {
+      debugPrint('WebRTC remote track received: ${e.track.kind}, streams=${e.streams.length}');
+      if (e.streams.isNotEmpty && mounted) {
+        setState(() => _remote.srcObject = e.streams[0]);
+      }
+    };
+    _pc!.onIceConnectionState = (state) {
+      debugPrint('WebRTC ICE connection state: $state');
+      if (!mounted) return;
+      final label = state.toString().split('.').last;
+      if (label.toLowerCase().contains('failed')) {
+        setState(() => _callStatus = 'Network connection failed');
+      } else if (label.toLowerCase().contains('checking')) {
+        setState(() => _callStatus = 'Checking network connection...');
+      }
+    };
     _pc!.onIceCandidate = (c) async {
       if (c.candidate == null) return;
       try {
@@ -977,7 +994,11 @@ class _CallScreenState extends State<CallScreen> {
         setState(() => _callStatus = 'Reconnecting...');
       }
     };
-    _localStream!.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
+    // Wait for every local audio/video track to be attached before creating SDP.
+    // Creating the offer too early can negotiate a call with no media tracks.
+    for (final track in _localStream!.getTracks()) {
+      await _pc!.addTrack(track, _localStream!);
+    }
     if (widget.isCaller) {
       var offer = await _pc!.createOffer();
       await _pc!.setLocalDescription(offer);
@@ -987,18 +1008,29 @@ class _CallScreenState extends State<CallScreen> {
       if (!doc.exists) return;
       var d = doc.data()!;
       if (d['status'] == 'ended') { _endLocal(); return; }
-      if (!widget.isCaller && d['offer'] != null && _pc!.getRemoteDescription() == null) {
-        await _pc!.setRemoteDescription(RTCSessionDescription(d['offer']['sdp'], d['offer']['type']));
-        _remoteDescriptionReady = true;
-        await _flushPendingCandidates();
-        var ans = await _pc!.createAnswer();
-        await _pc!.setLocalDescription(ans);
-        await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'answer': ans.toMap(), 'status': 'accepted'}, SetOptions(merge: true));
+      if (!widget.isCaller && d['offer'] != null && !_handlingOffer && _pc!.getRemoteDescription() == null) {
+        _handlingOffer = true;
+        try {
+          await _pc!.setRemoteDescription(RTCSessionDescription(d['offer']['sdp'], d['offer']['type']));
+          _remoteDescriptionReady = true;
+          await _flushPendingCandidates();
+          final answer = await _pc!.createAnswer();
+          await _pc!.setLocalDescription(answer);
+          await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set(
+            {'answer': answer.toMap(), 'status': 'accepted'}, SetOptions(merge: true));
+        } finally {
+          _handlingOffer = false;
+        }
       }
-      if (widget.isCaller && d['answer'] != null && _pc!.getRemoteDescription() == null) {
-        await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
-        _remoteDescriptionReady = true;
-        await _flushPendingCandidates();
+      if (widget.isCaller && d['answer'] != null && !_handlingAnswer && _pc!.getRemoteDescription() == null) {
+        _handlingAnswer = true;
+        try {
+          await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
+          _remoteDescriptionReady = true;
+          await _flushPendingCandidates();
+        } finally {
+          _handlingAnswer = false;
+        }
       }
     }, onError: (e) { debugPrint('Call signaling listener failed: $e'); if (mounted) _endCall(); });
     _candSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').snapshots().listen((snap) {
