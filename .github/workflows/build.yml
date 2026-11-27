@@ -61,25 +61,115 @@ jobs:
           gradle_files = list(cache.glob("**/android/build.gradle")) + list(cache.glob("**/android/build.gradle.kts"))
           for gradle_file in gradle_files:
               original = gradle_file.read_text()
+              updated = original
+              # FlutterFire plugins may use a Flutter variable or safeExtGet(...)
+              # instead of a numeric compileSdk. Replace the whole active setting.
               updated = re.sub(
-                  r'(?m)^(\s*compileSdkVersion\s+)\d+',
-                  r'\g<1>36',
-                  original
-              )
-              updated = re.sub(
-                  r'(?m)^(\s*compileSdk(?:Version)?\s*=\s*)\d+',
-                  r'\g<1>36',
+                  r'(?m)^(\s*)compileSdkVersion\b[^\n]*
+          for path in changed:
+              print(path)
+          PY
+
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      - name: Find APK
+        run: |
+          echo "Searching for APK..."
+          find . -type f -name "*.apk"
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" dist/Hamza-Jani-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamza-Jani-Android-APK
+          path: dist/Hamza-Jani-release.apk
+          if-no-files-found: error
+          retention-days: 14
+,
+                  r'\g<1>compileSdkVersion 36',
                   updated
               )
               updated = re.sub(
-                  r'(?m)^(\s*compileSdkVersion\s*\()\d+(\))',
-                  r'\g<1>36\g<2>',
+                  r'(?m)^(\s*)compileSdk\s*=\s*[^\n]+
+          for path in changed:
+              print(path)
+          PY
+
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      - name: Find APK
+        run: |
+          echo "Searching for APK..."
+          find . -type f -name "*.apk"
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" dist/Hamza-Jani-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamza-Jani-Android-APK
+          path: dist/Hamza-Jani-release.apk
+          if-no-files-found: error
+          retention-days: 14
+,
+                  r'\g<1>compileSdk = 36',
+                  updated
+              )
+              updated = re.sub(
+                  r'(?m)^(\s*)compileSdkVersion\s*\([^\n]*\)\s*
+          for path in changed:
+              print(path)
+          PY
+
+      - name: Build Release APK
+        run: flutter build apk --release
+
+      - name: Find APK
+        run: |
+          echo "Searching for APK..."
+          find . -type f -name "*.apk"
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          if [ ! -f "$APK" ]; then
+            echo "ERROR: APK not found."
+            exit 1
+          fi
+          mkdir -p dist
+          cp "$APK" dist/Hamza-Jani-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Hamza-Jani-Android-APK
+          path: dist/Hamza-Jani-release.apk
+          if-no-files-found: error
+          retention-days: 14
+,
+                  r'\g<1>compileSdkVersion(36)',
                   updated
               )
               if updated != original:
                   gradle_file.write_text(updated)
                   changed.append(str(gradle_file))
           print(f"Updated {len(changed)} Android plugin Gradle files to compile SDK 36.")
+          for path in changed:
+              print(path)
+          firebase_auth_files = list(cache.glob("**/firebase_auth-*/android/build.gradle")) + list(cache.glob("**/firebase_auth-*/android/build.gradle.kts"))
+          for path in firebase_auth_files:
+              print(f"firebase_auth Gradle file: {path}")
+              print(path.read_text())
           for path in changed:
               print(path)
           PY
