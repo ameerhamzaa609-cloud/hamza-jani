@@ -921,6 +921,7 @@ class _CallScreenState extends State<CallScreen> {
   final _remote = RTCVideoRenderer();
   MediaStream? _localStream;
   bool _muted = false; bool _speaker = false; bool _connected = false; bool _front = true;
+  bool _localVideoExpanded = false;
   String _callStatus = 'Starting call...';
   StreamSubscription? _callSub; StreamSubscription? _candSub;
   Timer? _callTimeout;
@@ -949,6 +950,8 @@ class _CallScreenState extends State<CallScreen> {
     try {
     if (mounted) setState(() => _callStatus = 'Preparing call...');
     await _local.initialize(); await _remote.initialize();
+    // Start calls on the private earpiece; the in-call button can switch to loudspeaker.
+    await Helper.setSpeakerphoneOn(false);
     _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': widget.isVideo ? {'facingMode': 'user'} : false});
     _local.srcObject = _localStream;
     final iceServers = await _loadIceServers();
@@ -1118,8 +1121,18 @@ class _CallScreenState extends State<CallScreen> {
     setState(() => _muted = !_muted);
   }
   Future<void> _toggleSpeaker() async {
-    _localStream?.getAudioTracks().forEach((t) => t.enableSpeakerphone(!_speaker));
-    setState(() => _speaker = !_speaker);
+    final nextSpeakerState = !_speaker;
+    try {
+      await Helper.setSpeakerphoneOn(nextSpeakerState);
+      if (mounted) setState(() => _speaker = nextSpeakerState);
+    } catch (e) {
+      debugPrint('Changing call audio output failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not change audio output: $e')),
+        );
+      }
+    }
   }
   Future<void> _switchCamera() async {
     try {
@@ -1167,19 +1180,57 @@ class _CallScreenState extends State<CallScreen> {
       body: SafeArea(
         child: Stack(
           children: [
-            Positioned.fill(child: widget.isVideo
-                ? RTCVideoView(_remote, mirror: false)
-                : Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    CircleAvatar(radius: 60, child: Text(widget.otherName[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
-                    const SizedBox(height: 16),
-                    Text(widget.otherName, style: const TextStyle(color: Colors.white, fontSize: 24)),
-                    Text(_callStatus, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
-                  ]))),
-            if (widget.isVideo) Positioned(
-              top: 16, right: 16, width: 120, height: 170,
-              child: ClipRRect(borderRadius: BorderRadius.circular(12),
-                child: RTCVideoView(_local, mirror: _front)),
-            ),
+            if (widget.isVideo)
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () {
+                    if (_localVideoExpanded) setState(() => _localVideoExpanded = false);
+                  },
+                  child: RTCVideoView(
+                    _localVideoExpanded ? _local : _remote,
+                    mirror: _localVideoExpanded ? _front : false,
+                  ),
+                ),
+              )
+            else
+              Positioned.fill(
+                child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  CircleAvatar(radius: 60, child: Text(widget.otherName[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
+                  const SizedBox(height: 16),
+                  Text(widget.otherName, style: const TextStyle(color: Colors.white, fontSize: 24)),
+                  Text(_callStatus, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
+                ])),
+              ),
+            if (widget.isVideo)
+              Positioned(
+                top: 16, right: 16, width: 120, height: 170,
+                child: GestureDetector(
+                  onTap: () => setState(() => _localVideoExpanded = !_localVideoExpanded),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        RTCVideoView(
+                          _localVideoExpanded ? _remote : _local,
+                          mirror: _localVideoExpanded ? false : _front,
+                        ),
+                        Positioned(
+                          right: 6, bottom: 6,
+                          child: Container(
+                            padding: const EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Icon(Icons.swap_horiz, color: Colors.white, size: 18),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             if (widget.isVideo) Positioned(
               top: 16, left: 16, right: 150,
               child: Container(
