@@ -908,7 +908,6 @@ class _StatusScreenState extends State<StatusScreen>{
    });
   })),
  ]);}
-}
 class StatusViewer extends StatelessWidget{final Map<String,dynamic> data;const StatusViewer({super.key,required this.data});@override Widget build(BuildContext context){final image=data['type']=='image';return Scaffold(backgroundColor:Colors.black,appBar:AppBar(backgroundColor:Colors.black,foregroundColor:Colors.white,title:Text((data['displayName']??'Status').toString())),body:Center(child:image?InteractiveViewer(child:Image.network((data['mediaUrl']??'').toString(),fit:BoxFit.contain)):Padding(padding:const EdgeInsets.all(24),child:Text((data['text']??'').toString(),textAlign:TextAlign.center,style:const TextStyle(color:Colors.white,fontSize:26)))));}}
 // ===== CALL SCREEN =====
 class CallScreen extends StatefulWidget {
