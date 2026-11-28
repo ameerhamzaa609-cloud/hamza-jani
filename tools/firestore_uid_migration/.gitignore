@@ -1,0 +1,5 @@
+# Never commit Firebase Admin credentials or local dependencies
+*.service-account.json
+firebase-admin*.json
+service-account*.json
+node_modules/
