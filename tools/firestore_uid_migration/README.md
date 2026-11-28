@@ -46,6 +46,7 @@ authorize the correct participants.
 - `calls/{callId}`: fills `callerUid`, `calleeUid`, and
   `participantUids`.
 - `statuses/{statusId}`: fills `ownerUid`.
+- `publicProfiles/{uid}`: removes a phone number from the public username and phone-search fields when phone discovery is disabled. The private `users` record is retained.
 
 The mapping is based on the existing `users` collection's `uid`,
 `username`, and `phoneNumber` fields. Ambiguous identities are not guessed;
