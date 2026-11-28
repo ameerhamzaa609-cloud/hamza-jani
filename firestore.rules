@@ -27,6 +27,11 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
+    // Device tokens are private and readable/writable only by their owner.
+    match /privateUsers/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
     // A chat and its messages are accessible only to the two listed participants.
     match /chats/{chatId} {
       allow read: if isParticipant(resource.data);
