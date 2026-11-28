@@ -305,8 +305,9 @@ class _LoginScreenState extends State<LoginScreen>{
    'displayName':data['displayName']??'New User','discoverableByPhone':data['discoverableByPhone']!=false,
    if(!old.exists)'createdAt':FieldValue.serverTimestamp(),'online':true},SetOptions(merge:true));
   final discoverable=data['discoverableByPhone']!=false;
+  final publicUsername = discoverable ? number : 'user_${user.uid.substring(0,8)}';
   await FirebaseFirestore.instance.collection('publicProfiles').doc(user.uid).set({
-   'uid':user.uid,'username':number,'displayName':data['displayName']??'New User',
+   'uid':user.uid,'username':publicUsername,'displayName':data['displayName']??'New User',
    'discoverableByPhone':discoverable,'online':true,
    if(discoverable)...{'phoneNumber':number,'phoneSearch':number.replaceAll(RegExp(r'[^0-9]'), '')},
    if(!discoverable)'phoneNumber':FieldValue.delete(),if(!discoverable)'phoneSearch':FieldValue.delete(),
@@ -1172,11 +1173,395 @@ class _ProfileScreenState extends State<ProfileScreen>{
  @override void initState(){super.initState();_load();}
  Future<void> _load()async{final d=(await _ref.get()).data()??{};_name.text=(d['displayName']??d['username']??widget.myName).toString();_photo=d['photoUrl']?.toString();_phone=d['phoneNumber']?.toString()??FirebaseAuth.instance.currentUser?.phoneNumber;_discoverable=d['discoverableByPhone']!=false;if(mounted)setState(()=>_loading=false);}
  Future<void> _save()async{final n=_name.text.trim();if(n.isEmpty)return;await _ref.set({'displayName':n,'discoverableByPhone':_discoverable,
-  if(_discoverable&&_phone!=null)...{'phoneNumber':_phone,'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),'')},
-  if(!_discoverable)...{'phoneNumber':FieldValue.delete(),'phoneSearch':FieldValue.delete()}},SetOptions(merge:true));
+  if(_phone!=null)...{'phoneNumber':_phone,'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),'')},
+ },SetOptions(merge:true));
   final user=FirebaseAuth.instance.currentUser!;
+  final isPhoneUsername=RegExp(r'^\\+[1-9][0-9]{7,14}
+   'discoverableByPhone':_discoverable,'online':true,
+   if(_discoverable&&_phone!=null)'phoneNumber':_phone,
+   if(_discoverable&&_phone!=null)'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),''),
+   if(!_discoverable)'phoneNumber':FieldValue.delete(),if(!_discoverable)'phoneSearch':FieldValue.delete()
+  },SetOptions(merge:true));if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Profile saved')));}
+ Future<void> _changePhoto()async{final f=await _picker.pickImage(source:img.ImageSource.gallery,imageQuality:75);if(f==null)return;setState(()=>_loading=true);try{final u=await uploadToCloudinary(File(f.path),'image');if(u==null)throw StateError('Upload failed');await _ref.set({'photoUrl':u},SetOptions(merge:true));
+  await FirebaseFirestore.instance.collection('publicProfiles').doc(FirebaseAuth.instance.currentUser!.uid).set({'photoUrl':u},SetOptions(merge:true));_photo=u;}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}if(mounted)setState(()=>_loading=false);}
+ @override void dispose(){_name.dispose();super.dispose();}
+ @override Widget build(BuildContext context){if(_loading)return const Center(child:CircularProgressIndicator());return ListView(padding:const EdgeInsets.all(22),children:[
+  Center(child:GestureDetector(onTap:_changePhoto,child:CircleAvatar(radius:54,backgroundImage:_photo==null?null:NetworkImage(_photo!),child:_photo==null?const Icon(Icons.person,size:48):null))),
+  const SizedBox(height:20),TextField(controller:_name,decoration:const InputDecoration(labelText:'Your name',border:OutlineInputBorder())),
+  ListTile(leading:const Icon(Icons.phone),title:const Text('Verified phone'),subtitle:Text(_phone??'Not linked')),
+  SwitchListTile(title:const Text('Allow people to find me by phone'),value:_discoverable,onChanged:(v)=>setState(()=>_discoverable=v)),
+  ElevatedButton(onPressed:_save,child:const Text('SAVE PROFILE')),
+ ]);}
+}
+
+// ===== STATUS: TEXT OR PHOTO, EXPIRES AFTER 24 HOURS =====
+class StatusScreen extends StatefulWidget{final String myName;const StatusScreen({super.key,required this.myName});@override State<StatusScreen> createState()=>_StatusScreenState();}
+class _StatusScreenState extends State<StatusScreen>{
+ final _picker=img.ImagePicker();bool _uploading=false;
+ Future<void> _save(String type,{String text='',String? url})async{final u=(await FirebaseFirestore.instance.collection('users').doc(widget.myName).get()).data()??{};final user=FirebaseAuth.instance.currentUser;if(user==null)throw StateError('Please sign in again.');final now=DateTime.now();await FirebaseFirestore.instance.collection('statuses').add({'owner':widget.myName,'ownerUid':user.uid,'displayName':u['displayName']??widget.myName,'photoUrl':u['photoUrl'],'type':type,'text':text,'mediaUrl':url,'createdAt':Timestamp.fromDate(now),'expiresAt':Timestamp.fromDate(now.add(const Duration(hours:24)))});}
+ Future<void> _textStatus()async{final c=TextEditingController();final v=await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Share text status'),content:TextField(controller:c,maxLength:500,maxLines:4,decoration:const InputDecoration(hintText:'What is happening?')),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('CANCEL')),ElevatedButton(onPressed:()=>Navigator.pop(ctx,c.text.trim()),child:const Text('SHARE'))]));c.dispose();if(v!=null&&v.isNotEmpty){try{await _save('text',text:v);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}}}
+ Future<void> _photoStatus()async{final f=await _picker.pickImage(source:img.ImageSource.gallery,imageQuality:80);if(f==null)return;setState(()=>_uploading=true);try{final u=await uploadToCloudinary(File(f.path),'image');if(u==null)throw StateError('Upload failed');await _save('image',url:u);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}finally{if(mounted)setState(()=>_uploading=false);}}
+ @override Widget build(BuildContext context)=>Column(children:[
+  Padding(padding:const EdgeInsets.all(12),child:Row(children:[Expanded(child:OutlinedButton.icon(onPressed:_uploading?null:_textStatus,icon:const Icon(Icons.edit),label:const Text('Text status'))),const SizedBox(width:8),Expanded(child:ElevatedButton.icon(onPressed:_uploading?null:_photoStatus,icon:const Icon(Icons.photo),label:Text(_uploading?'Uploading':'Photo status')))])),
+  Expanded(child:StreamBuilder<QuerySnapshot>(stream:FirebaseFirestore.instance.collection('statuses').where('expiresAt',isGreaterThan:Timestamp.now()).snapshots(),builder:(context,s){
+   if(s.hasError)return Center(child:Text('Status error: ${s.error}'));if(!s.hasData)return const Center(child:CircularProgressIndicator());
+   final docs=s.data!.docs.toList()..sort((a,b){final x=(a.data() as Map<String,dynamic>)['createdAt'] as Timestamp?,y=(b.data() as Map<String,dynamic>)['createdAt'] as Timestamp?;if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;return y.compareTo(x);});
+   if(docs.isEmpty)return const Center(child:Text('No status yet. Share your first update.'));
+   return ListView.builder(itemCount:docs.length,itemBuilder:(context,i){final d=docs[i].data() as Map<String,dynamic>;final n=(d['displayName']??d['owner']??'User').toString();final p=d['photoUrl']?.toString();final t=d['createdAt'] as Timestamp?;final age=t==null?'':DateTime.now().difference(t.toDate()).inHours.toString()+'h ago';
+    return ListTile(leading:CircleAvatar(backgroundImage:p==null||p.isEmpty?null:NetworkImage(p),child:p==null||p.isEmpty?Text(n.isNotEmpty?n[0].toUpperCase():'?'):null),title:Text(d['owner']==widget.myName?'My status':n),subtitle:Text(d['type']=='image'?'Photo • $age':'${d['text']??''} • $age',maxLines:1,overflow:TextOverflow.ellipsis),onTap:()=>Navigator.push(context,MaterialPageRoute(builder:(_)=>StatusViewer(data:d))));
+   });
+  })),
+ ]);}
+class StatusViewer extends StatelessWidget{final Map<String,dynamic> data;const StatusViewer({super.key,required this.data});@override Widget build(BuildContext context){final image=data['type']=='image';return Scaffold(backgroundColor:Colors.black,appBar:AppBar(backgroundColor:Colors.black,foregroundColor:Colors.white,title:Text((data['displayName']??'Status').toString())),body:Center(child:image?InteractiveViewer(child:Image.network((data['mediaUrl']??'').toString(),fit:BoxFit.contain)):Padding(padding:const EdgeInsets.all(24),child:Text((data['text']??'').toString(),textAlign:TextAlign.center,style:const TextStyle(color:Colors.white,fontSize:26)))));}}
+// ===== CALL SCREEN =====
+class CallScreen extends StatefulWidget {
+  final String callId; final String myName; final String otherName; final bool isCaller; final bool isVideo;
+  const CallScreen({super.key, required this.callId, required this.myName, required this.otherName, required this.isCaller, required this.isVideo});
+  @override
+  State<CallScreen> createState() => _CallScreenState();
+}
+
+class _CallScreenState extends State<CallScreen> {
+  RTCPeerConnection? _pc;
+  final _local = RTCVideoRenderer();
+  final _remote = RTCVideoRenderer();
+  MediaStream? _localStream;
+  bool _muted = false; bool _speaker = false; bool _connected = false; bool _front = true;
+  bool _localVideoExpanded = false;
+  String _callStatus = 'Starting call...';
+  StreamSubscription? _callSub; StreamSubscription? _candSub;
+  Timer? _callTimeout;
+  bool _remoteDescriptionReady = false;
+  bool _handlingOffer = false;
+  bool _handlingAnswer = false;
+  bool _ending = false;
+  final List<RTCIceCandidate> _pendingCandidates = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _callTimeout = Timer(const Duration(seconds: 45), () async {
+      if (!_connected && mounted) {
+        try {
+          await FirebaseFirestore.instance.collection('calls').doc(widget.callId)
+              .set({'status': 'missed', 'endedAt': FieldValue.serverTimestamp()}, SetOptions(merge: true));
+        } catch (e) { debugPrint('Call timeout update failed: $e'); }
+        _endLocal();
+      }
+    });
+    _init();
+  }
+
+  Future<void> _init() async {
+    try {
+    if (mounted) setState(() => _callStatus = 'Preparing call...');
+    await _local.initialize(); await _remote.initialize();
+    // Start calls on the private earpiece; the in-call button can switch to loudspeaker.
+    await Helper.setSpeakerphoneOn(false);
+    _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': widget.isVideo ? {'facingMode': 'user'} : false});
+    _local.srcObject = _localStream;
+    final iceServers = await _loadIceServers();
+    _pc = await createPeerConnection({'iceServers': iceServers});
+    _pc!.onTrack = (e) {
+      debugPrint('WebRTC remote track received: ${e.track.kind}, streams=${e.streams.length}');
+      if (e.streams.isNotEmpty && mounted) {
+        setState(() => _remote.srcObject = e.streams[0]);
+      }
+    };
+    _pc!.onIceConnectionState = (state) {
+      debugPrint('WebRTC ICE connection state: $state');
+      if (!mounted) return;
+      final label = state.toString().split('.').last;
+      if (label.toLowerCase().contains('failed')) {
+        setState(() => _callStatus = 'Network path failed — TURN may be required');
+      } else if (label.toLowerCase().contains('checking')) {
+        setState(() => _callStatus = 'Checking network path...');
+      } else if (label.toLowerCase().contains('connected') || label.toLowerCase().contains('completed')) {
+        setState(() => _callStatus = 'Network path established; waiting for media...');
+      }
+    };
+    _pc!.onIceCandidate = (c) async {
+      if (c.candidate == null) return;
+      try {
+        await FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').add({
+          'from': widget.myName,
+          'fromUid': FirebaseAuth.instance.currentUser?.uid,
+          'candidate': c.candidate, 'sdpMid': c.sdpMid, 'sdpMLineIndex': c.sdpMLineIndex,
+        });
+      } catch (e) { debugPrint('Saving ICE candidate failed: $e'); }
+    };
+    _pc!.onConnectionState = (state) {
+      if (!mounted) return;
+      debugPrint('WebRTC peer connection state: $state');
+      if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnected) {
+        _callTimeout?.cancel();
+        unawaited(stopRingtone());
+        setState(() { _connected = true; _callStatus = 'Connected'; });
+        unawaited(FirebaseFirestore.instance.collection('calls').doc(widget.callId)
+            .set({'status': 'connected', 'connectedAt': FieldValue.serverTimestamp()},
+                SetOptions(merge: true))
+            .catchError((Object e) => debugPrint('Updating connected call status failed: $e')));
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateConnecting) {
+        setState(() => _callStatus = 'Connecting audio and video...');
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
+        setState(() => _callStatus = 'Connection failed — check network / TURN settings');
+      } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateDisconnected) {
+        setState(() => _callStatus = 'Reconnecting...');
+      }
+    };
+    // Wait for every local audio/video track to be attached before creating SDP.
+    // Creating the offer too early can negotiate a call with no media tracks.
+    for (final track in _localStream!.getTracks()) {
+      await _pc!.addTrack(track, _localStream!);
+    }
+    if (widget.isCaller) {
+      var offer = await _pc!.createOffer();
+      await _pc!.setLocalDescription(offer);
+      await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'offer': offer.toMap()}, SetOptions(merge: true));
+    }
+    _callSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).snapshots().listen((doc) async {
+      if (!doc.exists) return;
+      var d = doc.data()!;
+      if (widget.isCaller && ['accepted','connected','ended','missed','rejected'].contains(d['status'])) unawaited(stopRingtone());
+      if (d['status'] == 'ended' || d['status'] == 'missed' || d['status'] == 'rejected') { _endLocal(); return; }
+      if (!widget.isCaller && d['offer'] != null && !_handlingOffer && !_remoteDescriptionReady) {
+        _handlingOffer = true;
+        try {
+          await _pc!.setRemoteDescription(RTCSessionDescription(d['offer']['sdp'], d['offer']['type']));
+          _remoteDescriptionReady = true;
+          await _flushPendingCandidates();
+          final answer = await _pc!.createAnswer();
+          await _pc!.setLocalDescription(answer);
+          await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set(
+            {'answer': answer.toMap(), 'status': 'accepted'}, SetOptions(merge: true));
+        } finally {
+          _handlingOffer = false;
+        }
+      }
+      if (widget.isCaller && d['answer'] != null && !_handlingAnswer && !_remoteDescriptionReady) {
+        _handlingAnswer = true;
+        try {
+          await _pc!.setRemoteDescription(RTCSessionDescription(d['answer']['sdp'], d['answer']['type']));
+          _remoteDescriptionReady = true;
+          await _flushPendingCandidates();
+        } finally {
+          _handlingAnswer = false;
+        }
+      }
+    }, onError: (e) { debugPrint('Call signaling listener failed: $e'); if (mounted) _endCall(); });
+    _candSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('candidates').snapshots().listen((snap) {
+      for (var doc in snap.docChanges) {
+        if (doc.type == DocumentChangeType.added) {
+          var cd = doc.doc.data()!;
+          final myUid = FirebaseAuth.instance.currentUser?.uid;
+          final isOtherUser = cd['fromUid'] != null && myUid != null
+              ? cd['fromUid'] != myUid
+              : cd['from'] != widget.myName;
+          if (isOtherUser && cd['candidate'] != null) {
+            final candidate = RTCIceCandidate(
+              cd['candidate'] as String?,
+              cd['sdpMid'] as String?,
+              (cd['sdpMLineIndex'] as num?)?.toInt(),
+            );
+            if (_remoteDescriptionReady) {
+              _pc!.addCandidate(candidate).catchError((e) => debugPrint('Adding ICE candidate failed: $e'));
+            } else {
+              _pendingCandidates.add(candidate);
+            }
+          }
+        }
+      }
+    }, onError: (e) {
+      debugPrint('ICE candidate listener failed: $e');
+      if (mounted) setState(() => _callStatus = 'Could not receive network candidates');
+    });
+    } catch (e, st) {
+      debugPrint('Call setup failed: $e\\n$st');
+      if (mounted) setState(() => _callStatus = 'Call setup failed: $e');
+    }
+  }
+
+  // Fetch short-lived TURN credentials from our authenticated Worker.
+  // The Cloudflare API secret must never be embedded in this mobile app.
+  Future<List<Map<String, dynamic>>> _loadIceServers() async {
+    const endpoint = String.fromEnvironment('TURN_CONFIG_URL');
+    if (endpoint.isEmpty) {
+      _callStatus = 'Direct connection only — TURN not configured';
+      debugPrint('TURN_CONFIG_URL is empty; using STUN only. Calls may fail across restrictive/mobile networks.');
+      return [{'urls': 'stun:stun.l.google.com:19302'}];
+    }
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw StateError('You must be signed in to place a call');
+      final token = await user.getIdToken();
+      final response = await http.post(
+        Uri.parse(endpoint),
+        headers: {'Authorization': 'Bearer $token', 'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+      if (response.statusCode != 200) {
+        throw HttpException('TURN service returned ${response.statusCode}');
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      final servers = body['iceServers'];
+      if (servers is! List || servers.isEmpty) {
+        throw const FormatException('TURN service returned no ICE servers');
+      }
+      _callStatus = 'Connecting securely...';
+      return servers.map((server) => Map<String, dynamic>.from(server as Map)).toList();
+    } catch (e) {
+      debugPrint('TURN credentials unavailable: $e');
+      _callStatus = 'TURN unavailable — trying direct connection';
+      return [{'urls': 'stun:stun.l.google.com:19302'}];
+    }
+  }
+
+  Future<void> _flushPendingCandidates() async {
+    final pending = List<RTCIceCandidate>.from(_pendingCandidates);
+    _pendingCandidates.clear();
+    for (final candidate in pending) {
+      try { await _pc?.addCandidate(candidate); }
+      catch (e) { debugPrint('Queued ICE candidate failed: $e'); }
+    }
+  }
+
+  Future<void> _toggleMute() async {
+    _localStream?.getAudioTracks().forEach((t) => t.enabled = _muted);
+    setState(() => _muted = !_muted);
+  }
+  Future<void> _toggleSpeaker() async {
+    final nextSpeakerState = !_speaker;
+    try {
+      await Helper.setSpeakerphoneOn(nextSpeakerState);
+      if (mounted) setState(() => _speaker = nextSpeakerState);
+    } catch (e) {
+      debugPrint('Changing call audio output failed: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not change audio output: $e')),
+        );
+      }
+    }
+  }
+  Future<void> _switchCamera() async {
+    try {
+      final tracks = _localStream?.getVideoTracks() ?? <MediaStreamTrack>[];
+      if (tracks.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Camera is not available in this call')),
+        );
+        return;
+      }
+      await Helper.switchCamera(tracks.first);
+      if (mounted) setState(() => _front = !_front);
+    } catch (e) {
+      debugPrint('Camera switch failed: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not switch camera: $e')),
+      );
+    }
+  }
+  Future<void> _endCall() async {
+    await stopRingtone();
+    await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({'status': 'ended'}, SetOptions(merge: true));
+    _endLocal();
+  }
+  void _endLocal() async {
+    if (_ending) return;
+    _ending = true;
+    await stopRingtone();
+    _callTimeout?.cancel();
+    await _callSub?.cancel(); await _candSub?.cancel();
+    await _pc?.close(); await _localStream?.dispose();
+    _local.dispose(); _remote.dispose();
+    if (mounted && Navigator.of(context).canPop()) Navigator.pop(context);
+  }
+  @override
+  void dispose() {
+    _callTimeout?.cancel();
+    _callSub?.cancel(); _candSub?.cancel();
+    _pc?.close(); _localStream?.dispose(); _local.dispose(); _remote.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            if (widget.isVideo)
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () => setState(() => _localVideoExpanded = !_localVideoExpanded),
+                  child: RTCVideoView(
+                    _localVideoExpanded ? _local : _remote,
+                    mirror: _localVideoExpanded ? _front : false,
+                  ),
+                ),
+              )
+            else
+              Positioned.fill(
+                child: Center(child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  CircleAvatar(radius: 60, child: Text(widget.otherName[0].toUpperCase(), style: const TextStyle(fontSize: 40))),
+                  const SizedBox(height: 16),
+                  Text(widget.otherName, style: const TextStyle(color: Colors.white, fontSize: 24)),
+                  Text(_callStatus, textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
+                ])),
+              ),
+            if (widget.isVideo)
+              Positioned(
+                top: 16, right: 16, width: 120, height: 170,
+                child: GestureDetector(
+                  onTap: () => setState(() => _localVideoExpanded = !_localVideoExpanded),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        RTCVideoView(
+                          _localVideoExpanded ? _remote : _local,
+                          mirror: _localVideoExpanded ? false : _front,
+                        ),
+                        Positioned(
+                          right: 6, bottom: 6,
+                          child: Container(
+                            padding: const EdgeInsets.all(5),
+                            decoration: BoxDecoration(
+                              color: Colors.black54,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Icon(Icons.swap_horiz, color: Colors.white, size: 18),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            if (widget.isVideo) Positioned(
+              top: 16, left: 16, right: 150,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(8)),
+                child: Text(_callStatus, style: const TextStyle(color: Colors.white, fontSize: 12)),
+              ),
+            ),
+            Positioned(bottom: 30, left: 0, right: 0, child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              FloatingActionButton(backgroundColor: _muted ? Colors.white : Colors.grey.shade800, onPressed: _toggleMute, child: Icon(_muted ? Icons.mic_off : Icons.mic, color: _muted ? Colors.black : Colors.white)),
+              FloatingActionButton(backgroundColor: _speaker ? Colors.white : Colors.grey.shade800, onPressed: _toggleSpeaker, child: Icon(Icons.volume_up, color: _speaker ? Colors.black : Colors.white)),
+              if (widget.isVideo) FloatingActionButton(backgroundColor: Colors.grey.shade800, onPressed: _switchCamera, child: const Icon(Icons.switch_camera, color: Colors.white)),
+              FloatingActionButton(backgroundColor: Colors.red, onPressed: _endCall, child: const Icon(Icons.call_end, color: Colors.white)),
+            ])),
+          ],
+        ),
+      ),
+    );
+  }
+}
+).hasMatch(widget.myName);
+  final publicUsername=isPhoneUsername&&!_discoverable?'user_${user.uid.substring(0,8)}':widget.myName;
   await FirebaseFirestore.instance.collection('publicProfiles').doc(user.uid).set({
-   'uid':user.uid,'username':widget.myName,'displayName':n,'photoUrl':_photo,
+   'uid':user.uid,'username':publicUsername,'displayName':n,'photoUrl':_photo,
    'discoverableByPhone':_discoverable,'online':true,
    if(_discoverable&&_phone!=null)'phoneNumber':_phone,
    if(_discoverable&&_phone!=null)'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),''),
