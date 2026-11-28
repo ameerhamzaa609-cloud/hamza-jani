@@ -308,7 +308,7 @@ class _LoginScreenState extends State<LoginScreen>{
   await FirebaseFirestore.instance.collection('publicProfiles').doc(user.uid).set({
    'uid':user.uid,'username':number,'displayName':data['displayName']??'New User',
    'discoverableByPhone':discoverable,'online':true,
-   if(discoverable)'phoneNumber':number,'phoneSearch':if(discoverable)number.replaceAll(RegExp(r'[^0-9]'),''),
+   if(discoverable)...{'phoneNumber':number,'phoneSearch':number.replaceAll(RegExp(r'[^0-9]'), '')},
    if(data['photoUrl']!=null)'photoUrl':data['photoUrl']
   },SetOptions(merge:true));
  }
