@@ -1091,33 +1091,58 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _pickAndSend(String kind) async {
-    img.XFile? f;
-    if (kind == 'image') f = await _picker.pickImage(source: img.ImageSource.gallery, imageQuality: 70);
-    if (kind == 'video') f = await _picker.pickVideo(source: img.ImageSource.gallery);
-    if (kind == 'voice') f = await _picker.pickVideo(source: img.ImageSource.gallery);
-    if (f == null) return;
+    if (kind != 'image' && kind != 'video') return;
+    final img.XFile? file = kind == 'image'
+        ? await _picker.pickImage(source: img.ImageSource.gallery, imageQuality: 70)
+        : await _picker.pickVideo(source: img.ImageSource.gallery);
+    if (file == null || !mounted) return;
+
     setState(() => _uploading = true);
-    String type = kind == 'video' ? 'video' : (kind == 'voice' ? 'video' : 'image');
-    final url = await uploadToCloudinary(File(f.path), type);
-    setState(() => _uploading = false);
-    if (url == null) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed - try again')));
-      return;
+    try {
+      final url = await uploadToCloudinary(File(file.path), kind);
+      if (url == null) throw StateError('Upload failed - please try again.');
+
+      final me = FirebaseAuth.instance.currentUser;
+      if (me == null) throw StateError('Please sign in again.');
+      final otherUid = await _resolveOtherUid();
+      final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      final label = kind == 'image' ? 'Photo' : 'Video';
+      await chatRef.set({
+        'participants': [widget.myName, widget.otherName],
+        'participantUids': [me.uid, otherUid],
+        'lastMessage': label,
+        'lastSender': widget.myName,
+        'lastSenderUid': me.uid,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      await chatRef.collection('messages').add({
+        'from': widget.myName,
+        'to': widget.otherName,
+        'senderUid': me.uid,
+        'recipientUid': otherUid,
+        'type': kind,
+        'text': '',
+        'url': url,
+        'fileName': p.basename(file.path),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not send $kind: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _uploading = false);
     }
-    final me = FirebaseAuth.instance.currentUser;
-    if (me == null) throw StateError('Please sign in again.');
-    final otherUid = await _resolveOtherUid();
-    final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
-    await chatRef.set({'participants':[widget.myName,widget.otherName],'participantUids':[me.uid,otherUid],'lastMessage':kind=='image'?'Photo':'Video','lastSender':widget.myName,'lastSenderUid':me.uid,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
-    await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'senderUid':me.uid,'recipientUid':otherUid,'type':kind,'text':'','url':url,'fileName':p.basename(f.path),'createdAt':FieldValue.serverTimestamp()});
   }
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.otherName),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
+        backgroundColor: const Color(0xFF101010),
+        foregroundColor: const Color(0xFFD4AF37),
         actions: [
           IconButton(tooltip: 'Voice call', icon: const Icon(Icons.call), onPressed: () => _startChatCall(false)),
           IconButton(tooltip: 'Video call', icon: const Icon(Icons.videocam), onPressed: () => _startChatCall(true)),
@@ -1125,7 +1150,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
-          if (_uploading) const LinearProgressIndicator(color: Colors.green),
+          if (_uploading) const LinearProgressIndicator(color: Color(0xFFD4AF37)),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance.collection('chats').doc(chatId).collection('messages').snapshots(),
@@ -1152,7 +1177,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       child: Container(
                         margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                         padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(color: mine ? Colors.green.shade100 : Colors.grey.shade200, borderRadius: BorderRadius.circular(14)),
+                        decoration: BoxDecoration(color: mine ? const Color(0xFF332A16) : const Color(0xFF242424), border: Border.all(color: mine ? const Color(0xFFD4AF37) : Colors.white12), borderRadius: BorderRadius.circular(14)),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -1176,12 +1201,12 @@ class _ChatScreenState extends State<ChatScreen> {
               padding: const EdgeInsets.all(8),
               child: Row(
                 children: [
-                  IconButton(icon: const Icon(Icons.photo, color: Colors.green), onPressed: () => _pickAndSend('image')),
-                  IconButton(icon: const Icon(Icons.videocam, color: Colors.blue), onPressed: () => _pickAndSend('video')),
+                  IconButton(tooltip: 'Send photo', icon: const Icon(Icons.photo, color: Color(0xFFD4AF37)), onPressed: _uploading ? null : () => _pickAndSend('image')),
+                  IconButton(tooltip: 'Send video', icon: const Icon(Icons.videocam, color: Color(0xFFD4AF37)), onPressed: _uploading ? null : () => _pickAndSend('video')),
                   IconButton(icon: const Icon(Icons.mic, color: Colors.orange), onPressed: () => _pickAndSend('voice')),
                   Expanded(child: TextField(controller: _msgCtrl, decoration: InputDecoration(hintText: 'Message...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(30))))),
                   const SizedBox(width: 6),
-                  CircleAvatar(backgroundColor: Colors.green, child: IconButton(icon: const Icon(Icons.send, color: Colors.white), onPressed: _sendText)),
+                  CircleAvatar(backgroundColor: const Color(0xFFD4AF37), child: IconButton(icon: const Icon(Icons.send, color: Colors.black), onPressed: _sendText)),
                 ],
               ),
             ),
