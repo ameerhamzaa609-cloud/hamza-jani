@@ -67,18 +67,18 @@ jobs:
               # Groovy/Kotlin DSL: compileSdk = 33
               # Also accept the parenthesized compileSdkVersion(33) form.
               text = re.sub(
-                  r'(?m)^(\\s*compileSdkVersion)\\s*(?:=\\s*)?\\(?\\s*33\\s*\\)?\\s*$',
-                  r'\\1 36',
+                  r'(?m)^(\s*compileSdkVersion)\s*(?:=\s*)?\(?\s*33\s*\)?\s*$',
+                  r'\1 36',
                   text,
               )
               text = re.sub(
-                  r'(?m)^(\\s*compileSdk)\\s*=\\s*33\\s*$',
-                  r'\\1 = 36',
+                  r'(?m)^(\s*compileSdk)\s*=\s*33\s*$',
+                  r'\1 = 36',
                   text,
               )
               text = re.sub(
-                  r'(?m)^(\\s*compileSdk)\\s+33\\s*$',
-                  r'\\1 36',
+                  r'(?m)^(\s*compileSdk)\s+33\s*$',
+                  r'\1 36',
                   text,
               )
               return text
@@ -107,7 +107,7 @@ jobs:
               print(f"===== firebase_auth Gradle file after patch: {path} =====")
               print(content)
               if re.search(
-                  r'(?m)^\\s*compileSdk(?:Version)?\\s*(?:=\\s*)?(?:\\(\\s*)?33\\b',
+                  r'(?m)^\s*compileSdk(?:Version)?\s*(?:=\s*)?(?:\(\s*)?33\b',
                   content,
               ):
                   raise SystemExit(
