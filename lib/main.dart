@@ -135,7 +135,26 @@ class _HamzaJaniAppState extends State<HamzaJaniApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Hamza Jani',
-      theme: ThemeData(primarySwatch: Colors.green, useMaterial3: true),
+      theme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFFD4AF37),
+          brightness: Brightness.dark,
+          surface: const Color(0xFF171717),
+        ),
+        scaffoldBackgroundColor: const Color(0xFF000000),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF101010),
+          foregroundColor: Color(0xFFD4AF37),
+          elevation: 0,
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: Color(0xFFD4AF37),
+          foregroundColor: Color(0xFF000000),
+        ),
+        dividerColor: Color(0xFF333333),
+      ),
       home: _ready
           ? const AuthGate()
           : _startupError != null
@@ -154,7 +173,7 @@ class StartupScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Color(0xFF0B2B22),
+      backgroundColor: Color(0xFF000000),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -193,7 +212,7 @@ class StartupErrorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF7F7F7),
+      backgroundColor: const Color(0xFF000000),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -316,9 +335,9 @@ class _LoginScreenState extends State<LoginScreen>{
   finally{if(mounted)setState(()=>_busy=false);}
  }
  @override void dispose(){_phone.dispose();_otp.dispose();_user.dispose();_pass.dispose();super.dispose();}
- @override Widget build(BuildContext context)=>Scaffold(backgroundColor:const Color(0xFF0B2B22),body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:Column(children:[
+ @override Widget build(BuildContext context)=>Scaffold(backgroundColor:const Color(0xFF000000),body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:Column(children:[
   const HamzaJaniLogo(size:124),const SizedBox(height:16),const Text('HAMZA JANI',style:TextStyle(color:Colors.white,fontSize:32,fontWeight:FontWeight.bold)),const SizedBox(height:24),
-  Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(20)),child:Column(children:[
+  Container(padding:const EdgeInsets.all(20),decoration:BoxDecoration(color:const Color(0xFF171717),border:Border.all(color:const Color(0xFF5A4A20)),borderRadius:BorderRadius.circular(20)),child:Column(children:[
    Text(_phoneMode?'Register or sign in with phone':'Existing account login',style:const TextStyle(fontSize:18,fontWeight:FontWeight.bold)),
    if(_phoneMode)...[
     TextField(controller:_phone,keyboardType:TextInputType.phone,decoration:const InputDecoration(labelText:'Phone with country code',hintText:'+971501234567')),
@@ -410,7 +429,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
             children: snapshot.data!.docs.map((doc) {
               final data = doc.data() as Map<String, dynamic>;
               return ListTile(
-                leading: const CircleAvatar(backgroundColor: Color(0xFFD9FDD3), child: Icon(Icons.groups, color: Color(0xFF075E54))),
+                leading: const CircleAvatar(backgroundColor: Color(0xFF2A2415), child: Icon(Icons.groups, color: Color(0xFFD4AF37))),
                 title: Text((data['name'] ?? 'Community').toString()),
                 subtitle: Text('${(data['memberUids'] as List?)?.length ?? 1} member(s)'),
               );
@@ -420,7 +439,7 @@ class _CommunityScreenState extends State<CommunityScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _createCommunity,
-        backgroundColor: const Color(0xFF075E54),
+        backgroundColor: const Color(0xFFD4AF37),
         foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: const Text('New community'),
@@ -438,7 +457,7 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final userRef = FirebaseFirestore.instance.collection('users').doc(myName);
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings'), backgroundColor: const Color(0xFF075E54), foregroundColor: Colors.white),
+      appBar: AppBar(title: const Text('Settings'), backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.white),
       body: ListView(
         children: [
           StreamBuilder<DocumentSnapshot>(
@@ -456,7 +475,7 @@ class SettingsScreen extends StatelessWidget {
             },
           ),
           const Divider(),
-          const ListTile(title: Text('ACCOUNT', style: TextStyle(color: Color(0xFF075E54), fontWeight: FontWeight.bold))),
+          const ListTile(title: Text('ACCOUNT', style: TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold))),
           ListTile(
             leading: const Icon(Icons.person_outline), title: const Text('Account'),
             subtitle: const Text('Your phone number and account details'),
@@ -471,7 +490,7 @@ class SettingsScreen extends StatelessWidget {
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PrivacySettingsScreen(myName: myName))),
           ),
           const Divider(),
-          const ListTile(title: Text('CHATS', style: TextStyle(color: Color(0xFF075E54), fontWeight: FontWeight.bold))),
+          const ListTile(title: Text('CHATS', style: TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold))),
           const ListTile(leading: Icon(Icons.chat_outlined), title: Text('Chats'), subtitle: Text('Your conversations and message settings')),
           const Divider(),
           const ListTile(title: Text('NOTIFICATIONS'), leading: Icon(Icons.notifications_outlined), subtitle: Text('Call and message alerts')),
@@ -500,7 +519,7 @@ class PrivacySettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final ref = FirebaseFirestore.instance.collection('users').doc(myName);
     return Scaffold(
-      appBar: AppBar(title: const Text('Privacy'), backgroundColor: const Color(0xFF075E54), foregroundColor: Colors.white),
+      appBar: AppBar(title: const Text('Privacy'), backgroundColor: const Color(0xFFD4AF37), foregroundColor: Colors.white),
       body: StreamBuilder<DocumentSnapshot>(
         stream: ref.snapshots(),
         builder: (context, snapshot) {
@@ -673,7 +692,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(const ['Chats', 'Updates', 'Communities', 'Calls'][_tab]),
-        backgroundColor: const Color(0xFF075E54),
+        backgroundColor: const Color(0xFFD4AF37),
         foregroundColor: Colors.white,
         actions: [
           IconButton(icon: const Icon(Icons.settings), tooltip: 'Settings', onPressed: _openSettings),
@@ -720,7 +739,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _tab = i; _search = ''; _searchCtrl.clear(); _showHistory = false;
         }),
         backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFFD9FDD3),
+        indicatorColor: const Color(0xFF2A2415),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Chats'),
           NavigationDestination(icon: Icon(Icons.circle_outlined), selectedIcon: Icon(Icons.circle), label: 'Updates'),
