@@ -1172,16 +1172,36 @@ class _ProfileScreenState extends State<ProfileScreen>{
  DocumentReference<Map<String,dynamic>> get _ref=>FirebaseFirestore.instance.collection('users').doc(widget.myName);
  @override void initState(){super.initState();_load();}
  Future<void> _load()async{final d=(await _ref.get()).data()??{};_name.text=(d['displayName']??d['username']??widget.myName).toString();_photo=d['photoUrl']?.toString();_phone=d['phoneNumber']?.toString()??FirebaseAuth.instance.currentUser?.phoneNumber;_discoverable=d['discoverableByPhone']!=false;if(mounted)setState(()=>_loading=false);}
- Future<void> _save()async{final n=_name.text.trim();if(n.isEmpty)return;await _ref.set({'displayName':n,'discoverableByPhone':_discoverable,
-  if(_phone!=null)...{'phoneNumber':_phone,'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),'')},
- },SetOptions(merge:true));
-  final user=FirebaseAuth.instance.currentUser!;
-  final isPhoneUsername=RegExp(r'^\\+[1-9][0-9]{7,14}
-   'discoverableByPhone':_discoverable,'online':true,
-   if(_discoverable&&_phone!=null)'phoneNumber':_phone,
-   if(_discoverable&&_phone!=null)'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),''),
-   if(!_discoverable)'phoneNumber':FieldValue.delete(),if(!_discoverable)'phoneSearch':FieldValue.delete()
-  },SetOptions(merge:true));if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Profile saved')));}
+ Future<void> _save() async {
+  final n = _name.text.trim();
+  if (n.isEmpty) return;
+  // Keep the verified number only in the owner-protected users document.
+  await _ref.set({
+   'displayName': n,
+   'discoverableByPhone': _discoverable,
+   if (_phone != null) 'phoneNumber': _phone,
+   if (_phone != null) 'phoneSearch': _phone!.replaceAll(RegExp(r'[^0-9]'), ''),
+  }, SetOptions(merge: true));
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) throw StateError('Please sign in again.');
+  final isPhoneUsername = RegExp(r'^\+[1-9][0-9]{7,14}$').hasMatch(widget.myName);
+  final publicUsername = isPhoneUsername && !_discoverable
+      ? 'user_' + user.uid.substring(0, 8)
+      : widget.myName;
+  await FirebaseFirestore.instance.collection('publicProfiles').doc(user.uid).set({
+   'uid': user.uid,
+   'username': publicUsername,
+   'displayName': n,
+   'photoUrl': _photo,
+   'discoverableByPhone': _discoverable,
+   'online': true,
+   if (_discoverable && _phone != null) 'phoneNumber': _phone,
+   if (_discoverable && _phone != null) 'phoneSearch': _phone!.replaceAll(RegExp(r'[^0-9]'), ''),
+   if (!_discoverable) 'phoneNumber': FieldValue.delete(),
+   if (!_discoverable) 'phoneSearch': FieldValue.delete(),
+  }, SetOptions(merge: true));
+  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile saved')));
+ }
  Future<void> _changePhoto()async{final f=await _picker.pickImage(source:img.ImageSource.gallery,imageQuality:75);if(f==null)return;setState(()=>_loading=true);try{final u=await uploadToCloudinary(File(f.path),'image');if(u==null)throw StateError('Upload failed');await _ref.set({'photoUrl':u},SetOptions(merge:true));
   await FirebaseFirestore.instance.collection('publicProfiles').doc(FirebaseAuth.instance.currentUser!.uid).set({'photoUrl':u},SetOptions(merge:true));_photo=u;}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}if(mounted)setState(()=>_loading=false);}
  @override void dispose(){_name.dispose();super.dispose();}
