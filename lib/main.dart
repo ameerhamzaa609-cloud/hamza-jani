@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -18,18 +19,74 @@ import 'package:audioplayers/audioplayers.dart';
 const String cloudName = 'ajritqmx';
 const String uploadPreset = 'hamza_jani';
 
-// ===== RINGTONE PLAYER - HAMZA JANI SPECIAL B =====
-final AudioPlayer ringPlayer = AudioPlayer();
+// ===== DISTINCT CALL SOUNDS =====
+// Incoming calls use the app's ringtone. Outgoing calls use a separate
+// standard telephone-style ringback (2 seconds ringing, 4 seconds pause).
+final AudioPlayer incomingRingPlayer = AudioPlayer();
+final AudioPlayer outgoingRingPlayer = AudioPlayer();
+
 Future<void> playHamzaRingtone() async {
   try {
-    await ringPlayer.setReleaseMode(ReleaseMode.loop);
-    await ringPlayer.play(AssetSource('ringtone.mp3'));
+    await outgoingRingPlayer.stop();
+    await incomingRingPlayer.setReleaseMode(ReleaseMode.loop);
+    await incomingRingPlayer.play(AssetSource('ringtone.mp3'));
   } catch (e) {
-    debugPrint('Ringtone: $e');
+    debugPrint('Incoming ringtone failed: $e');
   }
 }
+
+Uint8List _makeTelephoneRingbackWav() {
+  const sampleRate = 16000;
+  const seconds = 6;
+  const sampleCount = sampleRate * seconds;
+  const dataLength = sampleCount * 2;
+  final bytes = Uint8List(44 + dataLength);
+  final header = ByteData.sublistView(bytes);
+  void writeText(int offset, String value) {
+    for (var i = 0; i < value.length; i++) {
+      bytes[offset + i] = value.codeUnitAt(i);
+    }
+  }
+
+  writeText(0, 'RIFF');
+  header.setUint32(4, 36 + dataLength, Endian.little);
+  writeText(8, 'WAVE');
+  writeText(12, 'fmt ');
+  header.setUint32(16, 16, Endian.little);
+  header.setUint16(20, 1, Endian.little);
+  header.setUint16(22, 1, Endian.little);
+  header.setUint32(24, sampleRate, Endian.little);
+  header.setUint32(28, sampleRate * 2, Endian.little);
+  header.setUint16(32, 2, Endian.little);
+  header.setUint16(34, 16, Endian.little);
+  writeText(36, 'data');
+  header.setUint32(40, dataLength, Endian.little);
+
+  for (var i = 0; i < sampleCount; i++) {
+    final t = i / sampleRate;
+    final ringing = (t % seconds) < 2.0;
+    var sample = 0.0;
+    if (ringing) {
+      sample = (0.16 * (sin(2 * pi * 440 * t) + sin(2 * pi * 480 * t)) / 2);
+    }
+    header.setInt16(44 + i * 2, (sample * 32767).round(), Endian.little);
+  }
+  return bytes;
+}
+
+Future<void> playOutgoingRingback() async {
+  try {
+    await incomingRingPlayer.stop();
+    await outgoingRingPlayer.setReleaseMode(ReleaseMode.loop);
+    await outgoingRingPlayer.play(BytesSource(_makeTelephoneRingbackWav()));
+  } catch (e) {
+    debugPrint('Outgoing ringback failed: $e');
+  }
+}
+
 Future<void> stopRingtone() async {
-  try { await ringPlayer.stop(); } catch (_) {}
+  try { await incomingRingPlayer.stop(); } catch (_) {}
+  try { await outgoingRingPlayer.stop(); } catch (_) {}
 }
 
 // ===== NOTIFICATIONS =====
@@ -945,7 +1002,7 @@ class _HomeScreenState extends State<HomeScreen> {
       'isVideo': isVideo, 'status': 'calling', 'createdAt': FieldValue.serverTimestamp(),
     });
     // Ring the caller while the other phone is being alerted.
-    unawaited(playHamzaRingtone());
+    unawaited(playOutgoingRingback());
     if (!mounted) { await stopRingtone(); return; }
     Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, myName: myName, otherName: other, isCaller: true, isVideo: isVideo)));
   }
@@ -973,7 +1030,7 @@ class IncomingCallDialog extends StatelessWidget {
             Text(caller, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
             Text(isVideo ? 'Video Call...' : 'Voice Call...', style: const TextStyle(color: Colors.white70)),
             const SizedBox(height: 8),
-            const Text('🎵 Hamza Jani Ringtone', style: TextStyle(color: Colors.yellow)),
+            const Text('Incoming call ringtone', style: TextStyle(color: Color(0xFFD4AF37))),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -1052,7 +1109,7 @@ class _ChatScreenState extends State<ChatScreen> {
         'status': 'calling',
         'createdAt': FieldValue.serverTimestamp(),
       });
-      unawaited(playHamzaRingtone());
+      unawaited(playOutgoingRingback());
       if (!mounted) { await stopRingtone(); return; }
       await Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(
         callId: callId,
