@@ -620,7 +620,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _chatsList(){return StreamBuilder<QuerySnapshot>(stream:FirebaseFirestore.instance.collection('chats').snapshots(),builder:(context,s){
+  Widget _chatsList(){return StreamBuilder<QuerySnapshot>(stream:FirebaseFirestore.instance.collection('chats').where('participants',arrayContains:myName).snapshots(),builder:(context,s){
    if(s.hasError)return Center(child:Text('Could not load chats: ${s.error}'));if(!s.hasData)return const Center(child:CircularProgressIndicator());
    final docs=s.data!.docs.where((doc){final d=doc.data() as Map<String,dynamic>;final ps=(d['participants'] as List?)?.map((e)=>e.toString()).toList()??doc.id.split('_');
     if(!ps.contains(myName))return false;if(_search.isEmpty)return true;final other=ps.firstWhere((p)=>p!=myName,orElse:()=>'');return other.toLowerCase().contains(_search)||(d['lastMessage']??'').toString().toLowerCase().contains(_search);
