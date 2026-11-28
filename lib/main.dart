@@ -1003,6 +1003,18 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<String> _resolveOtherUid() async {
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) throw StateError('Please sign in again.');
+    // Existing chats already contain the trusted participant UIDs. Use them
+    // so a contact who hides their phone number can still receive a call.
+    final chat = await FirebaseFirestore.instance.collection('chats').doc(chatId).get();
+    final participantUids = (chat.data()?['participantUids'] as List?)
+        ?.map((value) => value.toString()).toList() ?? <String>[];
+    final existingOtherUid = participantUids.firstWhere(
+      (value) => value != me.uid,
+      orElse: () => '',
+    );
+    if (existingOtherUid.isNotEmpty) return existingOtherUid;
     final matches = await FirebaseFirestore.instance.collection('publicProfiles')
         .where('username', isEqualTo: widget.otherName).limit(1).get();
     if (matches.docs.isEmpty) {
