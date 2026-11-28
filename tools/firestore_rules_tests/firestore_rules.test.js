@@ -5,7 +5,7 @@ const {
   assertSucceeds,
   assertFails,
 } = require('@firebase/rules-unit-testing');
-const { doc, getDoc, setDoc, updateDoc, collection, addDoc } = require('firebase/firestore');
+const { doc, getDoc, setDoc, updateDoc } = require('firebase/firestore');
 
 const projectId = 'demo-hamza-jani';
 const rules = fs.readFileSync(path.resolve(__dirname, '../../firestore.rules'), 'utf8');
@@ -69,12 +69,12 @@ async function main() {
       displayName: 'Alice',
       discoverableByPhone: false,
     }));
-    await assertFails(setDoc(doc(alice, 'publicProfiles/alice-hidden-phone'), {
+    await assertFails(setDoc(doc(alice, 'publicProfiles/alice'), {
       uid: 'alice',
       username: '+971501234567',
       discoverableByPhone: false,
     }));
-    await assertFails(setDoc(doc(alice, 'publicProfiles/alice-hidden-fields'), {
+    await assertFails(setDoc(doc(alice, 'publicProfiles/alice'), {
       uid: 'alice',
       username: 'user_alice12',
       discoverableByPhone: false,
