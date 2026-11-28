@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "test": "firebase emulators:exec --only firestore --project demo-hamza-jani \"node firestore_rules.test.js\""
+    "test": "firebase --config ../../firebase.json emulators:exec --only firestore --project demo-hamza-jani \"node firestore_rules.test.js\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
