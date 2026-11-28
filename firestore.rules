@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserName() {
+      return request.auth.token.phone_number != null
+        ? request.auth.token.phone_number
+        : request.auth.token.email.split('@')[0];
+    }
+
+    function isParticipant(data) {
+      return signedIn()
+        && data.participants is list
+        && data.participants.hasAny([currentUserName()]);
+    }
+
+    // User directory is readable by signed-in users for contact discovery.
+    // Writes are limited to the authenticated account recorded in the document.
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn() && resource.data.uid == request.auth.uid
+                    && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // A chat and its messages are accessible only to the two listed participants.
+    match /chats/{chatId} {
+      allow read: if isParticipant(resource.data);
+      allow create: if isParticipant(request.resource.data);
+      allow update: if isParticipant(resource.data)
+                    && isParticipant(request.resource.data);
+      allow delete: if isParticipant(resource.data);
+
+      match /messages/{messageId} {
+        function parentChat() {
+          return get(/databases/$(database)/documents/chats/$(chatId)).data;
+        }
+        allow read: if isParticipant(parentChat());
+        allow create: if isParticipant(parentChat())
+                      && request.resource.data.from == currentUserName();
+        allow update, delete: if false;
+      }
+    }
+
+    // Calls and WebRTC candidates are limited to the caller and callee.
+    match /calls/{callId} {
+      allow read: if isParticipant(resource.data);
+      allow create: if isParticipant(request.resource.data)
+                    && request.resource.data.caller == currentUserName();
+      allow update: if isParticipant(resource.data)
+                    && isParticipant(request.resource.data);
+      allow delete: if false;
+
+      match /candidates/{candidateId} {
+        function parentCall() {
+          return get(/databases/$(database)/documents/calls/$(callId)).data;
+        }
+        allow read: if isParticipant(parentCall());
+        allow create: if isParticipant(parentCall())
+                      && request.resource.data.from == currentUserName();
+        allow update, delete: if false;
+      }
+    }
+
+    // Status updates are intentionally visible to signed-in users, like a shared status feed.
+    match /statuses/{statusId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.owner == currentUserName();
+      allow update, delete: if signedIn() && resource.data.owner == currentUserName();
+    }
+  }
+}
