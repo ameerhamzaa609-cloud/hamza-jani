@@ -31,6 +31,8 @@ jobs:
       - name: Test Firestore security rules in Emulator
         working-directory: tools/firestore_rules_tests
         run: |
+          node --check ../firestore_uid_migration/migrate_firestore_uids.js
+          node --check firestore_rules.test.js
           npm install --no-audit --no-fund
           npm test
 
