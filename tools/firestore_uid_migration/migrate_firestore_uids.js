@@ -126,6 +126,30 @@ async function main() {
     }, 'call/' + doc.id);
   }
 
+  // Remove E.164 phone numbers from publicly readable profile usernames
+  // when the owner has disabled phone discovery. Private users records retain
+  // the verified number; public profile cards use a non-phone UID handle.
+  const publicProfiles = await db.collection('publicProfiles').get();
+  let hiddenPhoneProfiles = 0;
+  for (const profile of publicProfiles.docs) {
+    const data = profile.data();
+    if (data.discoverableByPhone === true) continue;
+    const privateRecord = usersSnap.docs.find((u) => u.data().uid === profile.id);
+    const privateData = privateRecord ? privateRecord.data() : {};
+    const identity = String(data.username || privateData.phoneNumber || privateRecord?.id || '');
+    if (!/^\\+[1-9][0-9]{7,14}$/.test(identity)) continue;
+    const patch = {
+      username: 'user_' + profile.id.substring(0, 8),
+      phoneNumber: admin.firestore.FieldValue.delete(),
+      phoneSearch: admin.firestore.FieldValue.delete(),
+    };
+    planned++;
+    hiddenPhoneProfiles++;
+    console.log((apply ? 'UPDATE ' : 'DRY-RUN ') + 'publicProfile/' + profile.id,
+      { username: patch.username, phoneNumber: '[DELETE]', phoneSearch: '[DELETE]' });
+    if (apply) await profile.ref.set(patch, { merge: true });
+  }
+
   const statuses = await db.collection('statuses').get();
   for (const doc of statuses.docs) {
     const data = doc.data();
@@ -144,6 +168,8 @@ async function main() {
     chatsScanned: chats.size,
     callsScanned: calls.size,
     statusesScanned: statuses.size,
+    publicProfilesScanned: publicProfiles.size,
+    hiddenPhoneProfilesPlanned: hiddenPhoneProfiles,
     updatesPlanned: planned,
     unresolvedOrConflictingDocuments: skipped,
     ambiguousIdentityKeys: ambiguous.size,
