@@ -1188,9 +1188,7 @@ class _CallScreenState extends State<CallScreen> {
             if (widget.isVideo)
               Positioned.fill(
                 child: GestureDetector(
-                  onTap: () {
-                    if (_localVideoExpanded) setState(() => _localVideoExpanded = false);
-                  },
+                  onTap: () => setState(() => _localVideoExpanded = !_localVideoExpanded),
                   child: RTCVideoView(
                     _localVideoExpanded ? _local : _remote,
                     mirror: _localVideoExpanded ? _front : false,
