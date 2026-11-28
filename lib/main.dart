@@ -1203,8 +1203,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 children: [
                   IconButton(tooltip: 'Send photo', icon: const Icon(Icons.photo, color: Color(0xFFD4AF37)), onPressed: _uploading ? null : () => _pickAndSend('image')),
                   IconButton(tooltip: 'Send video', icon: const Icon(Icons.videocam, color: Color(0xFFD4AF37)), onPressed: _uploading ? null : () => _pickAndSend('video')),
-                  IconButton(icon: const Icon(Icons.mic, color: Colors.orange), onPressed: () => _pickAndSend('voice')),
-                  Expanded(child: TextField(controller: _msgCtrl, decoration: InputDecoration(hintText: 'Message...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(30))))),
+                                    Expanded(child: TextField(controller: _msgCtrl, decoration: InputDecoration(hintText: 'Message...', border: OutlineInputBorder(borderRadius: BorderRadius.circular(30))))),
                   const SizedBox(width: 6),
                   CircleAvatar(backgroundColor: const Color(0xFFD4AF37), child: IconButton(icon: const Icon(Icons.send, color: Colors.black), onPressed: _sendText)),
                 ],
