@@ -807,15 +807,15 @@ class _HomeScreenState extends State<HomeScreen> {
             final u = (userData['username'] ?? docs[i].id).toString();
             final online = userData['online'] == true;
             return ListTile(
-              leading: CircleAvatar(backgroundColor: Colors.green.shade100, child: Text(u.isNotEmpty ? u[0].toUpperCase() : '?', style: const TextStyle(fontWeight: FontWeight.bold))),
+              leading: CircleAvatar(backgroundColor: const Color(0xFF332A16), child: Text(u.isNotEmpty ? u[0].toUpperCase() : '?', style: const TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.bold))),
               title: Text((userData['displayName'] ?? u).toString(), style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text([online?'● Online':'○ Offline',if(userData['phoneNumber']!=null&&userData['discoverableByPhone']!=false)userData['phoneNumber'].toString()].join(' • '),style:TextStyle(color:online?Colors.green:Colors.grey)),
+              subtitle: Text([online?'● Online':'○ Offline',if(userData['phoneNumber']!=null&&userData['discoverableByPhone']!=false)userData['phoneNumber'].toString()].join(' • '),style:TextStyle(color:online?const Color(0xFFD4AF37):Colors.grey)),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  IconButton(icon: const Icon(Icons.chat, color: Colors.green), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(myName: myName, otherName: u)))),
-                  IconButton(icon: const Icon(Icons.videocam, color: Colors.blue), onPressed: () => _startCall(u, true)),
-                  IconButton(icon: const Icon(Icons.call, color: Colors.green), onPressed: () => _startCall(u, false)),
+                  IconButton(icon: const Icon(Icons.chat, color: Color(0xFFD4AF37)), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(myName: myName, otherName: u)))),
+                  IconButton(icon: const Icon(Icons.videocam, color: Color(0xFFD4AF37)), onPressed: () => _startCall(u, true)),
+                  IconButton(icon: const Icon(Icons.call, color: Color(0xFFD4AF37)), onPressed: () => _startCall(u, false)),
                 ],
               ),
             );
@@ -959,7 +959,7 @@ class IncomingCallDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      backgroundColor: Colors.green.shade800,
+      backgroundColor: const Color(0xFF101010),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       child: Padding(
         padding: const EdgeInsets.all(24),
@@ -968,7 +968,7 @@ class IncomingCallDialog extends StatelessWidget {
           children: [
             const Text('HAMZA JANI', style: TextStyle(color: Colors.white70, letterSpacing: 2)),
             const SizedBox(height: 12),
-            CircleAvatar(radius: 55, backgroundColor: Colors.white, child: Text(caller.isNotEmpty ? caller[0].toUpperCase() : '?', style: const TextStyle(fontSize: 40, color: Colors.green))),
+            CircleAvatar(radius: 55, backgroundColor: Colors.white, child: Text(caller.isNotEmpty ? caller[0].toUpperCase() : '?', style: const TextStyle(fontSize: 40, color: Color(0xFFD4AF37)))),
             const SizedBox(height: 12),
             Text(caller, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold)),
             Text(isVideo ? 'Video Call...' : 'Voice Call...', style: const TextStyle(color: Colors.white70)),
