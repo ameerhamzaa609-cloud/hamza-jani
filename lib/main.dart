@@ -696,8 +696,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(const ['Chats', 'Updates', 'Communities', 'Calls'][_tab]),
-        backgroundColor: const Color(0xFFD4AF37),
+        title: Text(
+          const ['Chats', 'Updates', 'Communities', 'Calls'][_tab],
+          style: const TextStyle(color: Color(0xFFD4AF37), fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: const Color(0xFF101010),
         foregroundColor: Colors.white,
         actions: [
           IconButton(icon: const Icon(Icons.settings), tooltip: 'Settings', onPressed: _openSettings),
@@ -744,8 +747,17 @@ class _HomeScreenState extends State<HomeScreen> {
         onDestinationSelected: (i) => setState(() {
           _tab = i; _search = ''; _searchCtrl.clear(); _showHistory = false;
         }),
-        backgroundColor: Colors.white,
-        indicatorColor: const Color(0xFF2A2415),
+        backgroundColor: const Color(0xFF101010),
+        indicatorColor: const Color(0xFF332A16),
+        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        labelTextStyle: WidgetStateProperty.resolveWith<TextStyle>((states) {
+          final selected = states.contains(WidgetState.selected);
+          return TextStyle(
+            color: selected ? const Color(0xFFD4AF37) : Colors.white60,
+            fontSize: 11,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          );
+        }),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Chats'),
           NavigationDestination(icon: Icon(Icons.circle_outlined), selectedIcon: Icon(Icons.circle), label: 'Updates'),
