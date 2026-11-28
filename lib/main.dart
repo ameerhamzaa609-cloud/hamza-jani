@@ -600,31 +600,23 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _listenIncoming() {
-    // Filter status locally so this listener does not require a Firestore
-    // composite index for (callee, status).
-    _incomingSub = FirebaseFirestore.instance
-        .collection('calls')
-        .where('callee', isEqualTo: myName)
-        .where('participants', arrayContains: myName)
-        .snapshots()
-        .listen((snap) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    // UID-based query is required by participant-only Firestore rules.
+    _incomingSub = FirebaseFirestore.instance.collection('calls')
+        .where('participantUids', arrayContains: uid)
+        .snapshots().listen((snap) {
       for (final doc in snap.docs) {
         final data = doc.data();
-        if (data['status'] == 'calling') {
-          _showIncoming(
-            doc.id,
-            (data['caller'] ?? 'Unknown').toString(),
-            data['isVideo'] == true,
-          );
+        if (data['calleeUid'] == uid && data['status'] == 'calling') {
+          _showIncoming(doc.id, (data['caller'] ?? 'Unknown').toString(), data['isVideo'] == true);
         }
       }
     }, onError: (Object error) {
       debugPrint('Incoming call listener failed: $error');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cannot receive calls: $error')),
-        );
-      }
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cannot receive calls: $error')),
+      );
     });
   }
 
@@ -829,7 +821,7 @@ class _HomeScreenState extends State<HomeScreen> {
   });}
   Widget _historyList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('calls').where('participants', arrayContains: myName).limit(100).snapshots(),
+      stream: FirebaseFirestore.instance.collection('calls').where('participantUids', arrayContains: FirebaseAuth.instance.currentUser?.uid).limit(100).snapshots(),
       builder: (c, s) {
         if (s.hasError) {
           return Center(
@@ -1523,4 +1515,56 @@ class _CallScreenState extends State<CallScreen> {
       ),
     );
   }
-}
+}   Widget _chatsList() {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const Center(child: Text('Please sign in again.'));
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('chats')
+          .where('participantUids', arrayContains: uid).snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) return Center(child: Text('Could not load chats: ${snapshot.error}'));
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        final docs = snapshot.data!.docs.where((doc) {
+          final data = doc.data() as Map<String, dynamic>;
+          final names = (data['participants'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+          final uids = (data['participantUids'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+          final myIndex = uids.indexOf(uid);
+          final other = myIndex >= 0 && myIndex < names.length
+              ? names[myIndex == 0 ? 1 : 0]
+              : names.firstWhere((name) => name != myName, orElse: () => '');
+          if (_search.isEmpty) return true;
+          return other.toLowerCase().contains(_search) ||
+              (data['lastMessage'] ?? '').toString().toLowerCase().contains(_search);
+        }).toList()
+          ..sort((a, b) {
+            final ad = a.data() as Map<String, dynamic>;
+            final bd = b.data() as Map<String, dynamic>;
+            final at = ad['updatedAt'] as Timestamp?;
+            final bt = bd['updatedAt'] as Timestamp?;
+            if (at == null && bt == null) return 0;
+            if (at == null) return 1;
+            if (bt == null) return -1;
+            return bt.compareTo(at);
+          });
+        if (docs.isEmpty) return const Center(child: Text('No chats yet. Find a contact in Calls to start chatting.'));
+        return ListView.builder(itemCount: docs.length, itemBuilder: (context, index) {
+          final doc = docs[index];
+          final data = doc.data() as Map<String, dynamic>;
+          final names = (data['participants'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+          final uids = (data['participantUids'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+          final myIndex = uids.indexOf(uid);
+          final other = myIndex >= 0 && myIndex < names.length
+              ? names[myIndex == 0 ? 1 : 0]
+              : names.firstWhere((name) => name != myName, orElse: () => 'Contact');
+          return ListTile(
+            leading: CircleAvatar(child: Text(other.isNotEmpty ? other[0].toUpperCase() : '?')),
+            title: Text(other),
+            subtitle: Text((data['lastMessage'] ?? 'Tap to open chat').toString(), maxLines: 1, overflow: TextOverflow.ellipsis),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(myName: myName, otherName: other))),
+          );
+        });
+      },
+    );
+   }
+
+
