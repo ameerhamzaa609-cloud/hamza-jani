@@ -367,7 +367,10 @@ class _HomeScreenState extends State<HomeScreen> {
       await FirebaseMessaging.instance.requestPermission(alert: true, badge: true, sound: true);
       String? token = await FirebaseMessaging.instance.getToken();
       if (token != null) {
-        await FirebaseFirestore.instance.collection('users').doc(myName).set({'fcmToken': token}, SetOptions(merge: true));
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) {
+          await FirebaseFirestore.instance.collection('privateUsers').doc(uid).set({'fcmToken': token}, SetOptions(merge: true));
+        }
       }
       FirebaseMessaging.onMessage.listen((msg) {
         // App open but in background tab - show incoming screen
