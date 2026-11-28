@@ -50,7 +50,89 @@ service cloud.firestore {
           || (
             !('phoneNumber' in request.resource.data)
             && !('phoneSearch' in request.resource.data)
-            && !request.resource.data.username.matches('^\\\\+[1-9][0-9]{7,14}$')
+            && !request.resource.data.username.matches('^\\+[1-9][0-9]{7,14}
+          )
+        );
+      allow delete: if signedIn() && uid == request.auth.uid;
+    }
+
+    match /privateUsers/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /chats/{chatId} {
+      allow read: if isUidParticipant(resource.data);
+      allow create: if isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids.size() == 2;
+      allow update: if isUidParticipant(resource.data)
+        && isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids == resource.data.participantUids
+        && request.resource.data.participants == resource.data.participants;
+      allow delete: if isUidParticipant(resource.data);
+
+      match /messages/{messageId} {
+        function parentChat() {
+          return get(/databases/$(database)/documents/chats/$(chatId)).data;
+        }
+        allow read: if isUidParticipant(parentChat());
+        allow create: if isUidParticipant(parentChat())
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.recipientUid in parentChat().participantUids
+          && request.resource.data.senderUid in parentChat().participantUids;
+        allow update, delete: if false;
+      }
+    }
+
+    match /calls/{callId} {
+      allow read: if isUidParticipant(resource.data);
+      allow create: if isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids.size() == 2
+        && request.resource.data.callerUid == request.auth.uid
+        && request.resource.data.calleeUid in request.resource.data.participantUids;
+      allow update: if isUidParticipant(resource.data)
+        && isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids == resource.data.participantUids
+        && request.resource.data.callerUid == resource.data.callerUid
+        && request.resource.data.calleeUid == resource.data.calleeUid;
+      allow delete: if false;
+
+      match /candidates/{candidateId} {
+        function parentCall() {
+          return get(/databases/$(database)/documents/calls/$(callId)).data;
+        }
+        allow read: if isUidParticipant(parentCall());
+        allow create: if isUidParticipant(parentCall())
+          && request.resource.data.fromUid == request.auth.uid;
+        allow update, delete: if false;
+      }
+    }
+
+    match /statuses/{statusId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if signedIn()
+        && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /communities/{communityId} {
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.memberUids;
+      allow create: if signedIn()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.auth.uid in request.resource.data.memberUids;
+      allow update: if signedIn()
+        && resource.data.createdByUid == request.auth.uid
+        && request.resource.data.createdByUid == request.auth.uid;
+      allow delete: if signedIn()
+        && resource.data.createdByUid == request.auth.uid;
+    }
+  }
+}
+)
           )
         );
       allow delete: if signedIn() && uid == request.auth.uid;
