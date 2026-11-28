@@ -1,37 +1,47 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() { return request.auth != null; }
-    function currentUserName() {
-      return request.auth.token.phone_number != null
-        ? request.auth.token.phone_number
-        : request.auth.token.email.split('@')[0];
+    function signedIn() {
+      return request.auth != null;
     }
-    function isParticipant(data) {
-      return signedIn() && data.participants is list
-        && data.participants.hasAny([currentUserName()]);
+
+    function isUidParticipant(data) {
+      return signedIn()
+        && data.participantUids is list
+        && request.auth.uid in data.participantUids;
     }
+
     function ownsUser(data) {
       return signedIn() && data.uid == request.auth.uid;
     }
 
-    // Private account documents: only the authenticated owner can access them.
+    // Private account records are keyed by legacy username/phone for now,
+    // but ownership is always checked against the immutable Firebase UID.
     match /users/{userId} {
       allow read: if ownsUser(resource.data);
       allow create: if ownsUser(request.resource.data);
-      allow update: if ownsUser(resource.data) && ownsUser(request.resource.data);
+      allow update: if ownsUser(resource.data)
+        && ownsUser(request.resource.data);
       allow delete: if ownsUser(resource.data);
     }
 
-    // Minimal contact-card data only. Phone fields are omitted when discovery is disabled.
+    // Contact cards contain only fields intended for signed-in discovery.
     match /publicProfiles/{uid} {
       allow read: if signedIn();
-      allow create, update: if signedIn() && uid == request.auth.uid
+      allow create, update: if signedIn()
+        && uid == request.auth.uid
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'uid', 'username', 'displayName', 'photoUrl', 'online',
           'discoverableByPhone', 'phoneNumber', 'phoneSearch'
-        ]);
+        ])
+        && (
+          request.resource.data.discoverableByPhone == true
+          || (
+            !('phoneNumber' in request.resource.data)
+            && !('phoneSearch' in request.resource.data)
+          )
+        );
       allow delete: if signedIn() && uid == request.auth.uid;
     }
 
@@ -39,53 +49,79 @@ service cloud.firestore {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }
 
+    // Only the two UIDs recorded when a chat is created can access it.
     match /chats/{chatId} {
-      allow read: if isParticipant(resource.data);
-      allow create: if isParticipant(request.resource.data);
-      allow update: if isParticipant(resource.data) && isParticipant(request.resource.data);
-      allow delete: if isParticipant(resource.data);
+      allow read: if isUidParticipant(resource.data);
+      allow create: if isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids.size() == 2;
+      allow update: if isUidParticipant(resource.data)
+        && isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids == resource.data.participantUids
+        && request.resource.data.participants == resource.data.participants;
+      allow delete: if isUidParticipant(resource.data);
+
       match /messages/{messageId} {
         function parentChat() {
           return get(/databases/$(database)/documents/chats/$(chatId)).data;
         }
-        allow read: if isParticipant(parentChat());
-        allow create: if isParticipant(parentChat())
-          && request.resource.data.from == currentUserName();
+        allow read: if isUidParticipant(parentChat());
+        allow create: if isUidParticipant(parentChat())
+          && request.resource.data.senderUid == request.auth.uid
+          && request.resource.data.recipientUid in parentChat().participantUids
+          && request.resource.data.senderUid in parentChat().participantUids;
         allow update, delete: if false;
       }
     }
 
+    // Calls and ICE candidates are restricted to the caller/callee UIDs.
     match /calls/{callId} {
-      allow read: if isParticipant(resource.data);
-      allow create: if isParticipant(request.resource.data)
-        && request.resource.data.caller == currentUserName();
-      allow update: if isParticipant(resource.data) && isParticipant(request.resource.data);
+      allow read: if isUidParticipant(resource.data);
+      allow create: if isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids.size() == 2
+        && request.resource.data.callerUid == request.auth.uid
+        && request.resource.data.calleeUid in request.resource.data.participantUids;
+      allow update: if isUidParticipant(resource.data)
+        && isUidParticipant(request.resource.data)
+        && request.resource.data.participantUids == resource.data.participantUids
+        && request.resource.data.callerUid == resource.data.callerUid
+        && request.resource.data.calleeUid == resource.data.calleeUid;
       allow delete: if false;
+
       match /candidates/{candidateId} {
         function parentCall() {
           return get(/databases/$(database)/documents/calls/$(callId)).data;
         }
-        allow read: if isParticipant(parentCall());
-        allow create: if isParticipant(parentCall())
-          && request.resource.data.from == currentUserName();
+        allow read: if isUidParticipant(parentCall());
+        allow create: if isUidParticipant(parentCall())
+          && request.resource.data.fromUid == request.auth.uid;
         allow update, delete: if false;
       }
     }
 
+    // Status posts remain visible to signed-in users, but only their owner
+    // UID can create, change, or remove them.
     match /statuses/{statusId} {
       allow read: if signedIn();
-      allow create: if signedIn() && request.resource.data.owner == currentUserName();
-      allow update, delete: if signedIn() && resource.data.owner == currentUserName();
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if signedIn()
+        && resource.data.ownerUid == request.auth.uid;
     }
 
     match /communities/{communityId} {
-      allow read: if signedIn() && request.auth.uid in resource.data.memberUids;
+      allow read: if signedIn()
+        && request.auth.uid in resource.data.memberUids;
       allow create: if signedIn()
         && request.resource.data.createdByUid == request.auth.uid
         && request.auth.uid in request.resource.data.memberUids;
-      allow update, delete: if signedIn()
+      allow update: if signedIn()
         && resource.data.createdByUid == request.auth.uid
         && request.resource.data.createdByUid == request.auth.uid;
+      allow delete: if signedIn()
+        && resource.data.createdByUid == request.auth.uid;
     }
   }
 }
