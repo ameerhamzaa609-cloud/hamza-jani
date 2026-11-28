@@ -883,8 +883,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _startCall(String other, bool isVideo) async {
     final callId = '${myName}_to_${other}_${DateTime.now().millisecondsSinceEpoch}';
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) throw StateError('Please sign in again.');
+    final matches = await FirebaseFirestore.instance.collection('publicProfiles')
+        .where('username', isEqualTo: other).limit(1).get();
+    if (matches.docs.isEmpty) throw StateError('This contact has no verified account identity yet.');
+    final otherUid = matches.docs.first.id;
     await FirebaseFirestore.instance.collection('calls').doc(callId).set({
       'caller': myName, 'callee': other, 'participants': [myName, other],
+      'callerUid': me.uid, 'calleeUid': otherUid, 'participantUids': [me.uid, otherUid],
       'isVideo': isVideo, 'status': 'calling', 'createdAt': FieldValue.serverTimestamp(),
     });
     // Ring the caller while the other phone is being alerted.
@@ -957,12 +964,27 @@ class _ChatScreenState extends State<ChatScreen> {
     return '${names[0]}_${names[1]}';
   }
 
+  Future<String> _resolveOtherUid() async {
+    final matches = await FirebaseFirestore.instance.collection('publicProfiles')
+        .where('username', isEqualTo: widget.otherName).limit(1).get();
+    if (matches.docs.isEmpty) {
+      throw StateError('This contact has no verified account identity yet.');
+    }
+    return matches.docs.first.id;
+  }
+
   Future<void> _startChatCall(bool isVideo) async {
     final callId = '${widget.myName}_to_${widget.otherName}_${DateTime.now().millisecondsSinceEpoch}';
     try {
+      final me = FirebaseAuth.instance.currentUser;
+      if (me == null) throw StateError('Please sign in again.');
+      final otherUid = await _resolveOtherUid();
       await FirebaseFirestore.instance.collection('calls').doc(callId).set({
         'caller': widget.myName,
         'callee': widget.otherName,
+        'callerUid': me.uid,
+        'calleeUid': otherUid,
+        'participantUids': [me.uid, otherUid],
         'participants': [widget.myName, widget.otherName],
         'isVideo': isVideo,
         'status': 'calling',
@@ -989,9 +1011,12 @@ class _ChatScreenState extends State<ChatScreen> {
     final t = _msgCtrl.text.trim();
     if (t.isEmpty) return;
     try {
+      final me = FirebaseAuth.instance.currentUser;
+      if (me == null) throw StateError('Please sign in again.');
+      final otherUid = await _resolveOtherUid();
       final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
-      await chatRef.set({'participants':[widget.myName,widget.otherName],'lastMessage':t,'lastSender':widget.myName,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
-      await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'type':'text','text':t,'url':'','createdAt':FieldValue.serverTimestamp()});
+      await chatRef.set({'participants':[widget.myName,widget.otherName],'participantUids':[me.uid,otherUid],'lastMessage':t,'lastSender':widget.myName,'lastSenderUid':me.uid,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
+      await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'senderUid':me.uid,'recipientUid':otherUid,'type':'text','text':t,'url':'','createdAt':FieldValue.serverTimestamp()});
       if(mounted)_msgCtrl.clear();
     } catch (e) {
       debugPrint('Message send failed for $chatId: $e');
@@ -1017,9 +1042,12 @@ class _ChatScreenState extends State<ChatScreen> {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Upload failed - try again')));
       return;
     }
+    final me = FirebaseAuth.instance.currentUser;
+    if (me == null) throw StateError('Please sign in again.');
+    final otherUid = await _resolveOtherUid();
     final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
-    await chatRef.set({'participants':[widget.myName,widget.otherName],'lastMessage':kind=='image'?'Photo':'Video','lastSender':widget.myName,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
-    await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'type':kind,'text':'','url':url,'fileName':p.basename(f.path),'createdAt':FieldValue.serverTimestamp()});
+    await chatRef.set({'participants':[widget.myName,widget.otherName],'participantUids':[me.uid,otherUid],'lastMessage':kind=='image'?'Photo':'Video','lastSender':widget.myName,'lastSenderUid':me.uid,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
+    await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'senderUid':me.uid,'recipientUid':otherUid,'type':kind,'text':'','url':url,'fileName':p.basename(f.path),'createdAt':FieldValue.serverTimestamp()});
   }
   @override
   Widget build(BuildContext context) {
@@ -1136,7 +1164,7 @@ class _ProfileScreenState extends State<ProfileScreen>{
 class StatusScreen extends StatefulWidget{final String myName;const StatusScreen({super.key,required this.myName});@override State<StatusScreen> createState()=>_StatusScreenState();}
 class _StatusScreenState extends State<StatusScreen>{
  final _picker=img.ImagePicker();bool _uploading=false;
- Future<void> _save(String type,{String text='',String? url})async{final u=(await FirebaseFirestore.instance.collection('users').doc(widget.myName).get()).data()??{};final now=DateTime.now();await FirebaseFirestore.instance.collection('statuses').add({'owner':widget.myName,'displayName':u['displayName']??widget.myName,'photoUrl':u['photoUrl'],'type':type,'text':text,'mediaUrl':url,'createdAt':Timestamp.fromDate(now),'expiresAt':Timestamp.fromDate(now.add(const Duration(hours:24)))});}
+ Future<void> _save(String type,{String text='',String? url})async{final u=(await FirebaseFirestore.instance.collection('users').doc(widget.myName).get()).data()??{};final user=FirebaseAuth.instance.currentUser;if(user==null)throw StateError('Please sign in again.');final now=DateTime.now();await FirebaseFirestore.instance.collection('statuses').add({'owner':widget.myName,'ownerUid':user.uid,'displayName':u['displayName']??widget.myName,'photoUrl':u['photoUrl'],'type':type,'text':text,'mediaUrl':url,'createdAt':Timestamp.fromDate(now),'expiresAt':Timestamp.fromDate(now.add(const Duration(hours:24)))});}
  Future<void> _textStatus()async{final c=TextEditingController();final v=await showDialog<String>(context:context,builder:(ctx)=>AlertDialog(title:const Text('Share text status'),content:TextField(controller:c,maxLength:500,maxLines:4,decoration:const InputDecoration(hintText:'What is happening?')),actions:[TextButton(onPressed:()=>Navigator.pop(ctx),child:const Text('CANCEL')),ElevatedButton(onPressed:()=>Navigator.pop(ctx,c.text.trim()),child:const Text('SHARE'))]));c.dispose();if(v!=null&&v.isNotEmpty){try{await _save('text',text:v);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}}}
  Future<void> _photoStatus()async{final f=await _picker.pickImage(source:img.ImageSource.gallery,imageQuality:80);if(f==null)return;setState(()=>_uploading=true);try{final u=await uploadToCloudinary(File(f.path),'image');if(u==null)throw StateError('Upload failed');await _save('image',url:u);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}finally{if(mounted)setState(()=>_uploading=false);}}
  @override Widget build(BuildContext context)=>Column(children:[
