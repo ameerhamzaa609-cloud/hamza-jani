@@ -760,6 +760,34 @@ class _ChatScreenState extends State<ChatScreen> {
     return '${names[0]}_${names[1]}';
   }
 
+  Future<void> _startChatCall(bool isVideo) async {
+    final callId = '${widget.myName}_to_${widget.otherName}_${DateTime.now().millisecondsSinceEpoch}';
+    try {
+      await FirebaseFirestore.instance.collection('calls').doc(callId).set({
+        'caller': widget.myName,
+        'callee': widget.otherName,
+        'participants': [widget.myName, widget.otherName],
+        'isVideo': isVideo,
+        'status': 'calling',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      unawaited(playHamzaRingtone());
+      if (!mounted) { await stopRingtone(); return; }
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(
+        callId: callId,
+        myName: widget.myName,
+        otherName: widget.otherName,
+        isCaller: true,
+        isVideo: isVideo,
+      )));
+    } catch (e) {
+      await stopRingtone();
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not start call: $e')),
+      );
+    }
+  }
+
   Future<void> _sendText() async {
     final t = _msgCtrl.text.trim();
     if (t.isEmpty) return;
@@ -799,7 +827,15 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.otherName), backgroundColor: Colors.green, foregroundColor: Colors.white),
+      appBar: AppBar(
+        title: Text(widget.otherName),
+        backgroundColor: Colors.green,
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(tooltip: 'Voice call', icon: const Icon(Icons.call), onPressed: () => _startChatCall(false)),
+          IconButton(tooltip: 'Video call', icon: const Icon(Icons.videocam), onPressed: () => _startChatCall(true)),
+        ],
+      ),
       body: Column(
         children: [
           if (_uploading) const LinearProgressIndicator(color: Colors.green),
