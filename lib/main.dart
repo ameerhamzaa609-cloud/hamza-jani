@@ -920,7 +920,7 @@ class _HomeScreenState extends State<HomeScreen> {
             final d = historyDocs[i];
             final other = (d['caller'] == myName) ? d['callee'] : d['caller'];
             return ListTile(
-              leading: Icon(d['isVideo'] == true ? Icons.videocam : Icons.call, color: Colors.green),
+              leading: Icon(d['isVideo'] == true ? Icons.videocam : Icons.call, color: const Color(0xFFD4AF37)),
               title: Text(other.toString()),
               subtitle: Text('${d['caller']} → ${d['callee']} • ${d['status'] ?? ''}'),
               trailing: IconButton(icon: const Icon(Icons.call), onPressed: () => _startCall(other.toString(), d['isVideo'] == true)),
@@ -983,11 +983,11 @@ class IncomingCallDialog extends StatelessWidget {
                   await FirebaseFirestore.instance.collection('calls').doc(callId).set({'status': 'ended'}, SetOptions(merge: true));
                   Navigator.pop(context);
                 }, child: const Icon(Icons.call_end, color: Colors.white)),
-                FloatingActionButton.large(backgroundColor: Colors.white, onPressed: () async {
+                FloatingActionButton.large(backgroundColor: const Color(0xFFD4AF37), onPressed: () async {
                   onAnswered();
                   Navigator.pop(context);
                   Navigator.push(context, MaterialPageRoute(builder: (_) => CallScreen(callId: callId, myName: myName, otherName: caller, isCaller: false, isVideo: isVideo)));
-                }, child: const Icon(Icons.call, color: Colors.green)),
+                }, child: const Icon(Icons.call, color: Colors.black)),
               ],
             ),
           ],
