@@ -672,35 +672,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Hamza Jani'),
-        backgroundColor: Colors.green,
-        foregroundColor: Colors.white,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.settings),
-            tooltip: 'Settings',
-            onPressed: _openSettings,
-          ),
-          IconButton(icon: const Icon(Icons.logout), onPressed: () async {
-            await FirebaseFirestore.instance.collection('users').doc(myName).set({'online': false}, SetOptions(merge: true));
-            await FirebaseAuth.instance.signOut();
-          }),
-        ],
-      ),
-      appBar: AppBar(
         title: Text(const ['Chats', 'Updates', 'Communities', 'Calls'][_tab]),
         backgroundColor: const Color(0xFF075E54),
         foregroundColor: Colors.white,
         actions: [
-          IconButton(icon: const Icon(Icons.search), tooltip: 'Search', onPressed: () {
-            if (_tab == 0 || _tab == 3) {
-              setState(() { _search = ''; _searchCtrl.clear(); });
-              showSearch(context: context, delegate: _HamzaSearchDelegate(
-                onSearch: (value) => setState(() => _search = value.toLowerCase()),
-              ));
-            }
-          }),
           IconButton(icon: const Icon(Icons.settings), tooltip: 'Settings', onPressed: _openSettings),
+          IconButton(icon: const Icon(Icons.logout), tooltip: 'Log out', onPressed: () async {
+            await FirebaseFirestore.instance.collection('users').doc(myName).set({'online': false}, SetOptions(merge: true));
+            await FirebaseAuth.instance.signOut();
+          }),
         ],
       ),
       body: _tab == 1
