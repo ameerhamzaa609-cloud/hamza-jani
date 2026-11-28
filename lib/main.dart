@@ -797,8 +797,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (t.isEmpty) return;
     try {
       final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
-      await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'type':'text','text':t,'url':'','createdAt':FieldValue.serverTimestamp()});
       await chatRef.set({'participants':[widget.myName,widget.otherName],'lastMessage':t,'lastSender':widget.myName,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
+      await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'type':'text','text':t,'url':'','createdAt':FieldValue.serverTimestamp()});
       if(mounted)_msgCtrl.clear();
     } catch (e) {
       debugPrint('Message send failed for $chatId: $e');
@@ -825,8 +825,8 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     final chatRef=FirebaseFirestore.instance.collection('chats').doc(chatId);
-    await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'type':kind,'text':'','url':url,'fileName':p.basename(f.path),'createdAt':FieldValue.serverTimestamp()});
     await chatRef.set({'participants':[widget.myName,widget.otherName],'lastMessage':kind=='image'?'Photo':'Video','lastSender':widget.myName,'updatedAt':FieldValue.serverTimestamp()},SetOptions(merge:true));
+    await chatRef.collection('messages').add({'from':widget.myName,'to':widget.otherName,'type':kind,'text':'','url':url,'fileName':p.basename(f.path),'createdAt':FieldValue.serverTimestamp()});
   }
   @override
   Widget build(BuildContext context) {
