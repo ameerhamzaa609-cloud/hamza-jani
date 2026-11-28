@@ -30,10 +30,55 @@ Future<void> playHamzaRingtone() async {
   try {
     await outgoingRingPlayer.stop();
     await incomingRingPlayer.setReleaseMode(ReleaseMode.loop);
-    await incomingRingPlayer.play(AssetSource('ringtone.mp3'));
+    await incomingRingPlayer.play(BytesSource(_makeIncomingRingtoneWav()));
   } catch (e) {
     debugPrint('Incoming ringtone failed: $e');
   }
+}
+
+Uint8List _makeIncomingRingtoneWav() {
+  const sampleRate = 16000;
+  const seconds = 4;
+  const sampleCount = sampleRate * seconds;
+  const dataLength = sampleCount * 2;
+  final bytes = Uint8List(44 + dataLength);
+  final header = ByteData.sublistView(bytes);
+  void writeText(int offset, String value) {
+    for (var i = 0; i < value.length; i++) {
+      bytes[offset + i] = value.codeUnitAt(i);
+    }
+  }
+
+  writeText(0, 'RIFF');
+  header.setUint32(4, 36 + dataLength, Endian.little);
+  writeText(8, 'WAVE');
+  writeText(12, 'fmt ');
+  header.setUint32(16, 16, Endian.little);
+  header.setUint16(20, 1, Endian.little);
+  header.setUint16(22, 1, Endian.little);
+  header.setUint32(24, sampleRate, Endian.little);
+  header.setUint32(28, sampleRate * 2, Endian.little);
+  header.setUint16(32, 2, Endian.little);
+  header.setUint16(34, 16, Endian.little);
+  writeText(36, 'data');
+  header.setUint32(40, dataLength, Endian.little);
+
+  for (var i = 0; i < sampleCount; i++) {
+    final t = i / sampleRate;
+    final phase = t % seconds;
+    var frequency = 0.0;
+    if (phase < 0.32 || (phase >= 0.90 && phase < 1.22)) {
+      frequency = 784;
+    } else if ((phase >= 0.40 && phase < 0.72) ||
+        (phase >= 1.30 && phase < 1.62)) {
+      frequency = 988;
+    }
+    final sample = frequency == 0
+        ? 0.0
+        : 0.18 * sin(2 * pi * frequency * t);
+    header.setInt16(44 + i * 2, (sample * 32767).round(), Endian.little);
+  }
+  return bytes;
 }
 
 Uint8List _makeTelephoneRingbackWav() {
