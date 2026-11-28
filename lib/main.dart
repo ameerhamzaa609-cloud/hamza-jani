@@ -309,6 +309,7 @@ class _LoginScreenState extends State<LoginScreen>{
    'uid':user.uid,'username':number,'displayName':data['displayName']??'New User',
    'discoverableByPhone':discoverable,'online':true,
    if(discoverable)...{'phoneNumber':number,'phoneSearch':number.replaceAll(RegExp(r'[^0-9]'), '')},
+   if(!discoverable)'phoneNumber':FieldValue.delete(),if(!discoverable)'phoneSearch':FieldValue.delete(),
    if(data['photoUrl']!=null)'photoUrl':data['photoUrl']
   },SetOptions(merge:true));
  }
