@@ -1,0 +1,14 @@
+{
+  "name": "hamza-jani-firestore-migration",
+  "private": true,
+  "version": "1.0.0",
+  "description": "One-time Admin SDK UID backfill for Hamza Jani Firestore data",
+  "main": "migrate_firestore_uids.js",
+  "scripts": {
+    "dry-run": "node migrate_firestore_uids.js",
+    "apply": "node migrate_firestore_uids.js --apply"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.0"
+  }
+}
