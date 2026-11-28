@@ -134,19 +134,20 @@ async function main() {
   for (const profile of publicProfiles.docs) {
     const data = profile.data();
     if (data.discoverableByPhone === true) continue;
-    const privateRecord = usersSnap.docs.find((u) => u.data().uid === profile.id);
-    const privateData = privateRecord ? privateRecord.data() : {};
-    const identity = String(data.username || privateData.phoneNumber || privateRecord?.id || '');
-    if (!/^\\+[1-9][0-9]{7,14}$/.test(identity)) continue;
+    const usernameIsPhone = /^\\+[1-9][0-9]{7,14}$/.test(String(data.username || ''));
+    const hasPublicPhoneFields = data.phoneNumber != null || data.phoneSearch != null;
+    if (!usernameIsPhone && !hasPublicPhoneFields) continue;
     const patch = {
-      username: 'user_' + profile.id.substring(0, 8),
       phoneNumber: admin.firestore.FieldValue.delete(),
       phoneSearch: admin.firestore.FieldValue.delete(),
     };
+    if (usernameIsPhone) {
+      patch.username = 'user_' + profile.id.substring(0, 8);
+    }
     planned++;
     hiddenPhoneProfiles++;
     console.log((apply ? 'UPDATE ' : 'DRY-RUN ') + 'publicProfile/' + profile.id,
-      { username: patch.username, phoneNumber: '[DELETE]', phoneSearch: '[DELETE]' });
+      { username: patch.username || data.username, phoneNumber: '[DELETE]', phoneSearch: '[DELETE]' });
     if (apply) await profile.ref.set(patch, { merge: true });
   }
 
