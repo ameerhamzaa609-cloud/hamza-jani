@@ -15,13 +15,29 @@ service cloud.firestore {
       return signedIn() && data.uid == request.auth.uid;
     }
 
+    // Allow a verified legacy account to claim its old username/phone-keyed
+    // record exactly once. The identity must match the verified Auth token.
+    function canClaimLegacyUser(userId, data) {
+      return signedIn()
+        && !('uid' in data)
+        && request.resource.data.uid == request.auth.uid
+        && (
+          (request.auth.token.phone_number != null
+            && (request.auth.token.phone_number == userId
+              || request.auth.token.phone_number == data.phoneNumber))
+          || (request.auth.token.email != null
+            && request.auth.token.email == userId + '@hamzajani.app')
+        );
+    }
+
     // Private account records are keyed by legacy username/phone for now,
     // but ownership is always checked against the immutable Firebase UID.
     match /users/{userId} {
       allow read: if ownsUser(resource.data);
       allow create: if ownsUser(request.resource.data);
-      allow update: if ownsUser(resource.data)
-        && ownsUser(request.resource.data);
+      allow update: if (ownsUser(resource.data)
+          && ownsUser(request.resource.data))
+        || canClaimLegacyUser(userId, resource.data);
       allow delete: if ownsUser(resource.data);
     }
 
