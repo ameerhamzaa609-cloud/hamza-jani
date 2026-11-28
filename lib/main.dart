@@ -304,6 +304,13 @@ class _LoginScreenState extends State<LoginScreen>{
   await ref.set({'username':number,'phoneNumber':number,'phoneSearch':number.replaceAll(RegExp(r'[^0-9]'),''),'uid':user.uid,
    'displayName':data['displayName']??'New User','discoverableByPhone':data['discoverableByPhone']!=false,
    if(!old.exists)'createdAt':FieldValue.serverTimestamp(),'online':true},SetOptions(merge:true));
+  final discoverable=data['discoverableByPhone']!=false;
+  await FirebaseFirestore.instance.collection('publicProfiles').doc(user.uid).set({
+   'uid':user.uid,'username':number,'displayName':data['displayName']??'New User',
+   'discoverableByPhone':discoverable,'online':true,
+   if(discoverable)'phoneNumber':number,'phoneSearch':if(discoverable)number.replaceAll(RegExp(r'[^0-9]'),''),
+   if(data['photoUrl']!=null)'photoUrl':data['photoUrl']
+  },SetOptions(merge:true));
  }
  Future<void> _sendOtp() async {
   final number=_phone.text.trim().replaceAll(' ','');
@@ -330,7 +337,8 @@ class _LoginScreenState extends State<LoginScreen>{
   if(name.isEmpty||password.isEmpty){setState(()=>_message='Enter username and password');return;}
   setState(()=>_busy=true);
   try{await FirebaseAuth.instance.signInWithEmailAndPassword(email:'$name@hamzajani.app',password:password);
-   await FirebaseFirestore.instance.collection('users').doc(name).set({'username':name,'uid':FirebaseAuth.instance.currentUser!.uid,'online':true},SetOptions(merge:true));}
+   await FirebaseFirestore.instance.collection('users').doc(name).set({'username':name,'uid':FirebaseAuth.instance.currentUser!.uid,'online':true},SetOptions(merge:true));
+   await FirebaseFirestore.instance.collection('publicProfiles').doc(FirebaseAuth.instance.currentUser!.uid).set({'uid':FirebaseAuth.instance.currentUser!.uid,'username':name,'displayName':name,'online':true,'discoverableByPhone':false},SetOptions(merge:true));}
   on FirebaseAuthException catch(e){if(mounted)setState(()=>_message=e.message??'Login failed');}
   finally{if(mounted)setState(()=>_busy=false);}
  }
@@ -698,6 +706,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(icon: const Icon(Icons.settings), tooltip: 'Settings', onPressed: _openSettings),
           IconButton(icon: const Icon(Icons.logout), tooltip: 'Log out', onPressed: () async {
             await FirebaseFirestore.instance.collection('users').doc(myName).set({'online': false}, SetOptions(merge: true));
+            await FirebaseFirestore.instance.collection('publicProfiles').doc(FirebaseAuth.instance.currentUser!.uid).set({'online':false},SetOptions(merge:true));
             await FirebaseAuth.instance.signOut();
           }),
         ],
@@ -759,7 +768,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _usersList() {
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('users').snapshots(),
+      stream: FirebaseFirestore.instance.collection('publicProfiles').snapshots(),
       builder: (c, s) {
         if (s.hasError) return Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('Cannot load users from Firebase: ${s.error}', textAlign: TextAlign.center)));
         if (s.connectionState == ConnectionState.waiting && !s.hasData) return const Center(child: CircularProgressIndicator());
@@ -1101,8 +1110,17 @@ class _ProfileScreenState extends State<ProfileScreen>{
  Future<void> _load()async{final d=(await _ref.get()).data()??{};_name.text=(d['displayName']??d['username']??widget.myName).toString();_photo=d['photoUrl']?.toString();_phone=d['phoneNumber']?.toString()??FirebaseAuth.instance.currentUser?.phoneNumber;_discoverable=d['discoverableByPhone']!=false;if(mounted)setState(()=>_loading=false);}
  Future<void> _save()async{final n=_name.text.trim();if(n.isEmpty)return;await _ref.set({'displayName':n,'discoverableByPhone':_discoverable,
   if(_discoverable&&_phone!=null)...{'phoneNumber':_phone,'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),'')},
-  if(!_discoverable)...{'phoneNumber':FieldValue.delete(),'phoneSearch':FieldValue.delete()}},SetOptions(merge:true));if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Profile saved')));}
- Future<void> _changePhoto()async{final f=await _picker.pickImage(source:img.ImageSource.gallery,imageQuality:75);if(f==null)return;setState(()=>_loading=true);try{final u=await uploadToCloudinary(File(f.path),'image');if(u==null)throw StateError('Upload failed');await _ref.set({'photoUrl':u},SetOptions(merge:true));_photo=u;}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}if(mounted)setState(()=>_loading=false);}
+  if(!_discoverable)...{'phoneNumber':FieldValue.delete(),'phoneSearch':FieldValue.delete()}},SetOptions(merge:true));
+  final user=FirebaseAuth.instance.currentUser!;
+  await FirebaseFirestore.instance.collection('publicProfiles').doc(user.uid).set({
+   'uid':user.uid,'username':widget.myName,'displayName':n,'photoUrl':_photo,
+   'discoverableByPhone':_discoverable,'online':true,
+   if(_discoverable&&_phone!=null)'phoneNumber':_phone,
+   if(_discoverable&&_phone!=null)'phoneSearch':_phone!.replaceAll(RegExp(r'[^0-9]'),''),
+   if(!_discoverable)'phoneNumber':FieldValue.delete(),if(!_discoverable)'phoneSearch':FieldValue.delete()
+  },SetOptions(merge:true));if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Profile saved')));}
+ Future<void> _changePhoto()async{final f=await _picker.pickImage(source:img.ImageSource.gallery,imageQuality:75);if(f==null)return;setState(()=>_loading=true);try{final u=await uploadToCloudinary(File(f.path),'image');if(u==null)throw StateError('Upload failed');await _ref.set({'photoUrl':u},SetOptions(merge:true));
+  await FirebaseFirestore.instance.collection('publicProfiles').doc(FirebaseAuth.instance.currentUser!.uid).set({'photoUrl':u},SetOptions(merge:true));_photo=u;}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('$e')));}if(mounted)setState(()=>_loading=false);}
  @override void dispose(){_name.dispose();super.dispose();}
  @override Widget build(BuildContext context){if(_loading)return const Center(child:CircularProgressIndicator());return ListView(padding:const EdgeInsets.all(22),children:[
   Center(child:GestureDetector(onTap:_changePhoto,child:CircleAvatar(radius:54,backgroundImage:_photo==null?null:NetworkImage(_photo!),child:_photo==null?const Icon(Icons.person,size:48):null))),
