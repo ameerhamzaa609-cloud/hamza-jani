@@ -389,6 +389,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _incomingSub = FirebaseFirestore.instance
         .collection('calls')
         .where('callee', isEqualTo: myName)
+        .where('participants', arrayContains: myName)
         .snapshots()
         .listen((snap) {
       for (final doc in snap.docs) {
