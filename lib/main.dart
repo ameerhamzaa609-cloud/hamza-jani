@@ -334,6 +334,191 @@ class _LoginScreenState extends State<LoginScreen>{
   ]))
  ])))));
 }
+
+// ===== COMMUNITIES =====
+class CommunityScreen extends StatefulWidget {
+  final String myName;
+  const CommunityScreen({super.key, required this.myName});
+  @override
+  State<CommunityScreen> createState() => _CommunityScreenState();
+}
+
+class _CommunityScreenState extends State<CommunityScreen> {
+  Future<void> _createCommunity() async {
+    final controller = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('New community'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 60,
+          decoration: const InputDecoration(
+            labelText: 'Community name',
+            hintText: 'e.g. Family',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('CANCEL')),
+          FilledButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('CREATE')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.isEmpty || !mounted) return;
+    try {
+      final user = FirebaseAuth.instance.currentUser!;
+      await FirebaseFirestore.instance.collection('communities').add({
+        'name': name,
+        'createdByUid': user.uid,
+        'createdByName': widget.myName,
+        'memberUids': [user.uid],
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not create community: $e')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return const Center(child: Text('Please sign in again.'));
+    return Scaffold(
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('communities')
+            .where('memberUids', arrayContains: uid).snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.hasError) return Center(child: Text('Could not load communities: ${snapshot.error}'));
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          if (snapshot.data!.docs.isEmpty) {
+            return Center(child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: Column(mainAxisSize: MainAxisSize.min, children: const [
+                Icon(Icons.groups_outlined, size: 64, color: Colors.grey),
+                SizedBox(height: 14),
+                Text('Stay connected', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                SizedBox(height: 8),
+                Text('Create a community to bring related groups together.', textAlign: TextAlign.center, style: TextStyle(color: Colors.grey)),
+              ]),
+            ));
+          }
+          return ListView(
+            children: snapshot.data!.docs.map((doc) {
+              final data = doc.data() as Map<String, dynamic>;
+              return ListTile(
+                leading: const CircleAvatar(backgroundColor: Color(0xFFD9FDD3), child: Icon(Icons.groups, color: Color(0xFF075E54))),
+                title: Text((data['name'] ?? 'Community').toString()),
+                subtitle: Text('${(data['memberUids'] as List?)?.length ?? 1} member(s)'),
+              );
+            }).toList(),
+          );
+        },
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: _createCommunity,
+        backgroundColor: const Color(0xFF075E54),
+        foregroundColor: Colors.white,
+        icon: const Icon(Icons.add),
+        label: const Text('New community'),
+      ),
+    );
+  }
+}
+
+// ===== SETTINGS =====
+class SettingsScreen extends StatelessWidget {
+  final String myName;
+  const SettingsScreen({super.key, required this.myName});
+
+  @override
+  Widget build(BuildContext context) {
+    final userRef = FirebaseFirestore.instance.collection('users').doc(myName);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Settings'), backgroundColor: const Color(0xFF075E54), foregroundColor: Colors.white),
+      body: ListView(
+        children: [
+          StreamBuilder<DocumentSnapshot>(
+            stream: userRef.snapshots(),
+            builder: (context, snapshot) {
+              final data = snapshot.data?.data() as Map<String, dynamic>?;
+              final displayName = (data?['displayName'] ?? data?['username'] ?? myName).toString();
+              return ListTile(
+                leading: CircleAvatar(radius: 27, child: Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?')),
+                title: Text(displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: const Text('Profile and personal information'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ProfileScreen(myName: myName))),
+              );
+            },
+          ),
+          const Divider(),
+          const ListTile(title: Text('ACCOUNT', style: TextStyle(color: Color(0xFF075E54), fontWeight: FontWeight.bold))),
+          ListTile(
+            leading: const Icon(Icons.person_outline), title: const Text('Account'),
+            subtitle: const Text('Your phone number and account details'),
+            onTap: () => showDialog<void>(context: context, builder: (c) => AlertDialog(
+              title: const Text('Account'), content: Text('Signed in as ${FirebaseAuth.instance.currentUser?.phoneNumber ?? myName}'),
+              actions: [TextButton(onPressed: () => Navigator.pop(c), child: const Text('OK'))],
+            )),
+          ),
+          ListTile(
+            leading: const Icon(Icons.lock_outline), title: const Text('Privacy'),
+            subtitle: const Text('Control who can find you by phone number'),
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PrivacySettingsScreen(myName: myName))),
+          ),
+          const Divider(),
+          const ListTile(title: Text('CHATS', style: TextStyle(color: Color(0xFF075E54), fontWeight: FontWeight.bold))),
+          const ListTile(leading: Icon(Icons.chat_outlined), title: Text('Chats'), subtitle: Text('Your conversations and message settings')),
+          const Divider(),
+          const ListTile(title: Text('NOTIFICATIONS'), leading: Icon(Icons.notifications_outlined), subtitle: Text('Call and message alerts')),
+          const Divider(),
+          const ListTile(title: Text('STORAGE AND DATA'), leading: Icon(Icons.storage_outlined), subtitle: Text('Media and data usage')),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.logout, color: Colors.red), title: const Text('Log out'),
+            onTap: () async {
+              await userRef.set({'online': false}, SetOptions(merge: true));
+              await FirebaseAuth.instance.signOut();
+              if (context.mounted) Navigator.pop(context);
+            },
+          ),
+          const ListTile(title: Text('Hamza Jani', style: TextStyle(color: Colors.grey)), subtitle: Text('Messaging and calling')),
+        ],
+      ),
+    );
+  }
+}
+
+class PrivacySettingsScreen extends StatelessWidget {
+  final String myName;
+  const PrivacySettingsScreen({super.key, required this.myName});
+  @override
+  Widget build(BuildContext context) {
+    final ref = FirebaseFirestore.instance.collection('users').doc(myName);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Privacy'), backgroundColor: const Color(0xFF075E54), foregroundColor: Colors.white),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: ref.snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+          final data = snapshot.data!.data() as Map<String, dynamic>? ?? {};
+          final discoverable = data['discoverableByPhone'] != false;
+          return SwitchListTile(
+            title: const Text('Find me by phone number'),
+            subtitle: const Text('When off, other users cannot find you using your phone number.'),
+            value: discoverable,
+            onChanged: (value) => ref.set({'discoverableByPhone': value}, SetOptions(merge: true)),
+          );
+        },
+      ),
+    );
+  }
+}
+
 // ===== HOME + INCOMING CALL LISTENER =====
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -502,76 +687,75 @@ class _HomeScreenState extends State<HomeScreen> {
           }),
         ],
       ),
-      body: _tab==2?StatusScreen(myName:myName):_tab==3?ProfileScreen(myName:myName):Column(children:[
-       if(_tab<2)Padding(padding:const EdgeInsets.all(10),child:TextField(controller:_searchCtrl,onChanged:(v)=>setState(()=>_search=v.trim().toLowerCase()),decoration:InputDecoration(hintText:'Search contacts by name or phone number',prefixIcon:const Icon(Icons.search),border:OutlineInputBorder(borderRadius:BorderRadius.circular(30))))),
-       if(_tab==0)Align(alignment:Alignment.centerRight,child:TextButton.icon(onPressed:()=>setState(()=>_showHistory=!_showHistory),icon:const Icon(Icons.history),label:Text(_showHistory?'Show contacts':'Call history'))),
-       Expanded(child:_tab==0?(_showHistory?_historyList():_usersList()):_chatsList()),
-      ]),
-      bottomNavigationBar:BottomNavigationBar(currentIndex:_tab,type:BottomNavigationBarType.fixed,onTap:(i){setState((){_tab=i;_search='';_searchCtrl.clear();});},selectedItemColor:Colors.green,items:const[
-       BottomNavigationBarItem(icon:Icon(Icons.call),label:'Calls'),BottomNavigationBarItem(icon:Icon(Icons.chat_bubble),label:'Chats'),
-       BottomNavigationBarItem(icon:Icon(Icons.circle),label:'Status'),BottomNavigationBarItem(icon:Icon(Icons.person),label:'Profile')]),
+      appBar: AppBar(
+        title: Text(const ['Chats', 'Updates', 'Communities', 'Calls'][_tab]),
+        backgroundColor: const Color(0xFF075E54),
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(icon: const Icon(Icons.search), tooltip: 'Search', onPressed: () {
+            if (_tab == 0 || _tab == 3) {
+              setState(() { _search = ''; _searchCtrl.clear(); });
+              showSearch(context: context, delegate: _HamzaSearchDelegate(
+                onSearch: (value) => setState(() => _search = value.toLowerCase()),
+              ));
+            }
+          }),
+          IconButton(icon: const Icon(Icons.settings), tooltip: 'Settings', onPressed: _openSettings),
+        ],
+      ),
+      body: _tab == 1
+          ? StatusScreen(myName: myName)
+          : _tab == 2
+              ? CommunityScreen(myName: myName)
+              : Column(children: [
+                  if (_tab == 0 || _tab == 3)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+                      child: TextField(
+                        controller: _searchCtrl,
+                        onChanged: (v) => setState(() => _search = v.trim().toLowerCase()),
+                        decoration: InputDecoration(
+                          hintText: _tab == 0 ? 'Search chats' : 'Search contacts by name or phone',
+                          prefixIcon: const Icon(Icons.search),
+                          filled: true,
+                          fillColor: Colors.grey.shade100,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(28), borderSide: BorderSide.none),
+                        ),
+                      ),
+                    ),
+                  if (_tab == 3)
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => setState(() => _showHistory = !_showHistory),
+                        icon: const Icon(Icons.history),
+                        label: Text(_showHistory ? 'Show contacts' : 'Call history'),
+                      ),
+                    ),
+                  Expanded(child: _tab == 0 ? _chatsList() : (_showHistory ? _historyList() : _usersList())),
+                ]),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() {
+          _tab = i; _search = ''; _searchCtrl.clear(); _showHistory = false;
+        }),
+        backgroundColor: Colors.white,
+        indicatorColor: const Color(0xFFD9FDD3),
+        destinations: const [
+          NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Chats'),
+          NavigationDestination(icon: Icon(Icons.circle_outlined), selectedIcon: Icon(Icons.circle), label: 'Updates'),
+          NavigationDestination(icon: Icon(Icons.groups_outlined), selectedIcon: Icon(Icons.groups), label: 'Communities'),
+          NavigationDestination(icon: Icon(Icons.call_outlined), selectedIcon: Icon(Icons.call), label: 'Calls'),
+        ],
+      ),
     );
   }
 
 
   Future<void> _openSettings() async {
-    final userRef = FirebaseFirestore.instance.collection('users').doc(myName);
-    final userSnap = await userRef.get();
-    if (!mounted) return;
-    final nameController = TextEditingController(
-      text: (userSnap.data()?['displayName'] ?? userSnap.data()?['username'] ?? myName).toString(),
-    );
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Settings'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('Display name'),
-            const SizedBox(height: 8),
-            TextField(
-              controller: nameController,
-              maxLength: 40,
-              decoration: const InputDecoration(
-                hintText: 'Enter your name',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text('Your login username and account ID will stay the same.',
-                style: TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('CANCEL')),
-          ElevatedButton(
-            onPressed: () async {
-              final displayName = nameController.text.trim();
-              if (displayName.isEmpty) return;
-              try {
-                await userRef.set({'displayName': displayName}, SetOptions(merge: true));
-                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Display name updated')),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Could not update name: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('SAVE'),
-          ),
-        ],
-      ),
-    );
-    nameController.dispose();
+    await Navigator.push(context, MaterialPageRoute(
+      builder: (_) => SettingsScreen(myName: myName),
+    ));
   }
 
   Widget _usersList() {
